@@ -1,0 +1,432 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  avatar        String?
+  role          Role      @default(USER)
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  domains       Domain[]
+  pages         Page[]
+  clones        Clone[]
+  sessions      Session[]
+  accounts      Account[]
+  apiKeys       ApiKey[]
+  components    Component[]
+  versions      PageVersion[]
+  aiSuggestions AISuggestion[]
+  formSubmissions FormSubmission[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  name      String
+  keyHash   String
+  prefix    String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastUsed  DateTime?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  @@index([userId])
+  @@index([keyHash])
+}
+
+model Domain {
+  id            String       @id @default(cuid())
+  name          String       @unique
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        DomainStatus @default(PENDING)
+  verification  DomainVerification?
+  sslStatus     SslStatus    @default(PENDING)
+  sslExpiresAt  DateTime?
+  dnsRecords    Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  pages         Page[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model DomainVerification {
+  id        String   @id @default(cuid())
+  domainId  String   @unique
+  domain    Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  type      VerificationType
+  value     String
+  verified  Boolean  @default(false)
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Page {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domainId    String?
+  domain      Domain?    @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  status      PageStatus @default(DRAFT)
+  sourceUrl   String?
+  html        String
+  css         String
+  js          String
+  meta        Json?
+  publishedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  clones           Clone[]
+  elements         PageElement[]
+  versions         PageVersion[]
+  components       PageComponent[]
+  aiSuggestions    AISuggestion[]
+  formSubmissions  FormSubmission[]
+
+  @@unique([domainId, slug])
+  @@index([userId])
+  @@index([domainId])
+  @@index([status])
+}
+
+model PageElement {
+  id        String   @id @default(cuid())
+  pageId    String
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  selector  String
+  type      ElementType
+  content   Json
+  styles    Json?
+  attrs     Json?
+  position  Int      @default(0)
+  parentId  String?
+  parent    PageElement? @relation("ElementHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  PageElement[] @relation("ElementHierarchy")
+
+  @@index([pageId])
+  @@index([parentId])
+}
+
+model Clone {
+  id          String       @id @default(cuid())
+  name        String
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceUrl   String
+  status      CloneStatus  @default(PENDING)
+  progress    Int          @default(0)
+  error       String?
+  resultHtml  String?
+  resultCss   String?
+  resultJs    String?
+  pageId      String?
+  page        Page?        @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  completedAt DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Component {
+  id          String         @id @default(cuid())
+  name        String
+  category    ComponentCategory
+  description String?
+  thumbnail   String?
+  html        String
+  css         String
+  js          String?
+  props       Json           // schema for configurable props
+  isGlobal    Boolean        @default(false)
+  userId      String?
+  user        User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  pageComponents PageComponent[]
+
+  @@index([category])
+  @@index([userId])
+  @@index([isGlobal])
+}
+
+model PageComponent {
+  id          String   @id @default(cuid())
+  pageId      String
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  componentId String
+  component   Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  props       Json     // actual prop values for this instance
+  position    Int      @default(0)
+  parentId    String?
+  parent      PageComponent? @relation("ComponentHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    PageComponent[] @relation("ComponentHierarchy")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([pageId])
+  @@index([componentId])
+  @@index([parentId])
+}
+
+model PageVersion {
+  id          String   @id @default(cuid())
+  pageId      String
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  version     Int
+  label       String?  // e.g., "v1.0 - Initial publish"
+  html        String
+  css         String
+  js          String
+  components  Json     // snapshot of PageComponent tree
+  meta        Json?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([pageId, version])
+  @@index([pageId])
+  @@index([userId])
+}
+
+model AISuggestion {
+  id          String         @id @default(cuid())
+  pageId      String
+  page        Page           @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  elementId   String?        // specific element or whole page
+  type        AISuggestionType
+  original    String
+  suggested   String
+  context     Json?
+  status      SuggestionStatus @default(PENDING)
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appliedAt   DateTime?
+  createdAt   DateTime       @default(now())
+
+  @@index([pageId])
+  @@index([userId])
+  @@index([status])
+}
+
+model FormSubmission {
+  id          String   @id @default(cuid())
+  pageId      String
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  componentId String?    // which form component
+  data        Json       // submitted form data
+  ip          String?
+  userAgent   String?
+  referrer    String?
+  status      SubmissionStatus @default(NEW)
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  processedAt DateTime?
+
+  @@index([pageId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  pageId    String
+  event     String
+  data      Json?
+  ip        String?
+  userAgent String?
+  referrer  String?
+  createdAt DateTime @default(now())
+
+  @@index([pageId])
+  @@index([event])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String
+  oldData   Json?
+  newData   Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+model Settings {
+  id                String   @id @default(cuid())
+  key               String   @unique
+  value             Json
+  description       String?
+  isPublic          Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFYING
+  VERIFIED
+  FAILED
+  EXPIRED
+}
+
+enum VerificationType {
+  TXT
+  CNAME
+  A_RECORD
+}
+
+enum SslStatus {
+  PENDING
+  PROVISIONING
+  ACTIVE
+  FAILED
+  EXPIRED
+}
+
+enum PageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CloneStatus {
+  PENDING
+  FETCHING
+  ANALYZING
+  RECONSTRUCTING
+  COMPLETED
+  FAILED
+}
+
+enum ElementType {
+  TEXT
+  IMAGE
+  BUTTON
+  LINK
+  FORM
+  CONTAINER
+  VIDEO
+  IFRAME
+  CUSTOM
+}
+
+enum ComponentCategory {
+  HERO
+  FEATURES
+  PRICING
+  TESTIMONIALS
+  FAQ
+  FORMS
+  NAVIGATION
+  FOOTER
+  CTA
+  MEDIA
+  CONTENT
+  LAYOUT
+  CUSTOM
+}
+
+enum AISuggestionType {
+  REWRITE
+  SHORTEN
+  EXPAND
+  TRANSLATE
+  TONE_CHANGE
+  SEO_OPTIMIZE
+  CTA_IMPROVE
+  HEADLINE
+  GENERATE
+}
+
+enum SuggestionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  APPLIED
+}
+
+enum SubmissionStatus {
+  NEW
+  READ
+  REPLIED
+  SPAM
+  ARCHIVED
+}

@@ -1,0 +1,451 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { 
+  Globe, 
+  Sparkles, 
+  Plus, 
+  Search, 
+  Edit3, 
+  ExternalLink, 
+  Trash2, 
+  Loader2, 
+  Calendar,
+  Layers,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  ArrowRight
+} from 'lucide-react';
+
+interface CloneItem {
+  id: string;
+  name: string;
+  sourceUrl: string;
+  status: 'PENDING' | 'FETCHING' | 'ANALYZING' | 'RECONSTRUCTING' | 'COMPLETED' | 'FAILED';
+  progress: number;
+  createdAt: string;
+  page?: {
+    id: string;
+    slug: string;
+  };
+}
+
+export default function ClonesManagementPage() {
+  const router = useRouter();
+  const [clones, setClones] = useState<CloneItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'COMPLETED' | 'PROCESSING'>('ALL');
+  
+  // Modal de novo clone rápido
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [targetUrl, setTargetUrl] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const fetchClones = async () => {
+    try {
+      const res = await fetch('/api/clones');
+      if (res.ok) {
+        const data = await res.json();
+        setClones(data);
+      }
+    } catch (err) {
+      console.error('Error fetching clones:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchClones();
+    const interval = setInterval(() => {
+      setClones((prev) => {
+        const hasPending = prev.some((c) => !['COMPLETED', 'FAILED'].includes(c.status));
+        if (hasPending) fetchClones();
+        return prev;
+      });
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleCreateClone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetUrl.trim()) return;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+
+    try {
+      let finalName = projectName.trim();
+      if (!finalName) {
+        try {
+          finalName = new URL(targetUrl).hostname;
+        } catch {
+          finalName = 'novo-projeto';
+        }
+      }
+
+      const res = await fetch('/api/clones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceUrl: targetUrl, name: finalName }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Erro ao iniciar clonagem');
+      }
+
+      const clone = await res.json();
+      setIsModalOpen(false);
+      setTargetUrl('');
+      setProjectName('');
+      router.push(`/dashboard/clones/${clone.id}/progress`);
+    } catch (err: any) {
+      setErrorMsg(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Deseja realmente excluir este projeto? Esta ação não pode ser desfeita.')) return;
+
+    try {
+      const res = await fetch(`/api/clones/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setClones((prev) => prev.filter((c) => c.id !== id));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const filteredClones = clones.filter((c) => {
+    const matchesSearch = 
+      c.name.toLowerCase().includes(search.toLowerCase()) || 
+      c.sourceUrl.toLowerCase().includes(search.toLowerCase());
+    
+    if (!matchesSearch) return false;
+    if (statusFilter === 'COMPLETED') return c.status === 'COMPLETED';
+    if (statusFilter === 'PROCESSING') return !['COMPLETED', 'FAILED'].includes(c.status);
+    return true;
+  });
+
+  return (
+    <div className="relative min-h-screen bg-[#07080b] text-white p-6 lg:p-10 selection:bg-blue-600/30">
+      {/* Background Glow */}
+      <div 
+        className="absolute inset-x-0 top-0 h-[380px] bg-cover bg-top bg-no-repeat opacity-20 pointer-events-none"
+        style={{ backgroundImage: 'url(/bg-dashboard.jpg)' }}
+      />
+
+      <div className="relative z-10 max-w-7xl mx-auto space-y-8">
+        {/* Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-6">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="p-1 rounded bg-blue-500/10 text-blue-400 text-xs border border-blue-500/20 font-mono font-medium">
+                PROJETOS & CLONES
+              </span>
+            </div>
+            <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-white">
+              Gestão de Projetos
+            </h1>
+            <p className="text-xs lg:text-sm text-neutral-400 mt-1">
+              Gerencie, edite e acompanhe todas as suas páginas clonadas e ativas.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-semibold text-black transition-all hover:bg-neutral-200 shadow-lg"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Novo Projeto</span>
+          </button>
+        </div>
+
+        {/* Filters and Search Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          {/* Search */}
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+            <input
+              type="text"
+              placeholder="Buscar por nome ou URL..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-[#0e1017] border border-white/10 rounded-xl text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+            />
+          </div>
+
+          {/* Status Tabs */}
+          <div className="flex items-center gap-1.5 bg-[#0e1017] p-1 rounded-xl border border-white/10 self-stretch sm:self-auto">
+            <button
+              onClick={() => setStatusFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                statusFilter === 'ALL'
+                  ? 'bg-white/15 text-white'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Todos ({clones.length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('COMPLETED')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                statusFilter === 'COMPLETED'
+                  ? 'bg-white/15 text-white'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Prontos ({clones.filter((c) => c.status === 'COMPLETED').length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('PROCESSING')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                statusFilter === 'PROCESSING'
+                  ? 'bg-white/15 text-white'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Em Fila ({clones.filter((c) => !['COMPLETED', 'FAILED'].includes(c.status)).length})
+            </button>
+          </div>
+        </div>
+
+        {/* Project Grid */}
+        {loading ? (
+          <div className="py-20 flex flex-col items-center justify-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-3" />
+            <p className="text-xs text-neutral-400">Carregando seus projetos...</p>
+          </div>
+        ) : filteredClones.length === 0 ? (
+          <div className="rounded-3xl border border-white/10 bg-[#0d0e14]/50 p-12 text-center backdrop-blur-sm">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 mb-4">
+              <Layers className="w-7 h-7" />
+            </div>
+            <h3 className="text-base font-bold text-white">Nenhum projeto encontrado</h3>
+            <p className="text-xs text-neutral-400 max-w-sm mx-auto mt-1.5">
+              {search ? 'Nenhum resultado corresponde aos termos pesquisados.' : 'Você ainda não clonou nenhuma página. Comece agora mesmo inserindo a URL de uma landing page.'}
+            </p>
+            {!search && (
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-blue-500 transition-colors shadow-lg shadow-blue-500/20"
+              >
+                <Plus className="w-4 h-4" />
+                Criar Primeiro Projeto
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredClones.map((clone) => {
+              const isDone = clone.status === 'COMPLETED';
+              const isFailed = clone.status === 'FAILED';
+              const isPending = !isDone && !isFailed;
+
+              return (
+                <div
+                  key={clone.id}
+                  className="group relative flex flex-col justify-between rounded-2xl border border-white/10 bg-[#0d0e14] p-5 hover:border-blue-500/50 hover:shadow-xl hover:shadow-blue-500/5 transition-all duration-200"
+                >
+                  <div>
+                    {/* Header: Title & Status */}
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-bold text-white truncate group-hover:text-blue-400 transition-colors">
+                          {clone.name}
+                        </h3>
+                        <p className="text-[11px] text-neutral-400 truncate flex items-center gap-1.5 mt-0.5">
+                          <Globe className="w-3 h-3 text-neutral-500 shrink-0" />
+                          <span className="truncate">{clone.sourceUrl}</span>
+                        </p>
+                      </div>
+
+                      {isDone && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Pronto
+                        </span>
+                      )}
+                      {isPending && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 shrink-0 animate-pulse">
+                          <Clock className="w-3 h-3" />
+                          {clone.progress}%
+                        </span>
+                      )}
+                      {isFailed && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20 shrink-0">
+                          <AlertCircle className="w-3 h-3" />
+                          Falha
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Progress Bar for active clones */}
+                    {isPending && (
+                      <div className="my-3">
+                        <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-300 rounded-full"
+                            style={{ width: `${clone.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Date */}
+                    <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 mt-2">
+                      <Calendar className="w-3 h-3" />
+                      <span>{new Date(clone.createdAt).toLocaleDateString('pt-BR')}</span>
+                    </div>
+                  </div>
+
+                  {/* Footer Actions */}
+                  <div className="mt-5 pt-3.5 border-t border-white/10 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {isDone ? (
+                        <Link
+                          href={`/dashboard/projeto/${clone.id}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors shadow-sm"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Editar Página</span>
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/dashboard/clones/${clone.id}/progress`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-300 text-xs font-medium transition-colors"
+                        >
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                          <span>Ver Progresso</span>
+                        </Link>
+                      )}
+
+                      {clone.page?.slug && (
+                        <a
+                          href={`/p/${clone.page.slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+                          title="Visualizar Página Publicada"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={(e) => handleDelete(clone.id, e)}
+                      className="p-1.5 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      title="Excluir Projeto"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Modal: Novo Projeto / Clonar */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0d0e14] p-6 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Criar Novo Clone</h3>
+                  <p className="text-[11px] text-neutral-400">Insira a URL para extrair a página</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-neutral-500 hover:text-white text-xs px-2 py-1 rounded"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateClone} className="mt-4 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                  Nome do Projeto (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Landing Page Curso XYZ"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#151722] border border-white/10 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                  URL da Página Alvo *
+                </label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://exemplo.com/pagina-de-vendas"
+                  value={targetUrl}
+                  onChange={(e) => setTargetUrl(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#151722] border border-white/10 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              {errorMsg && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Iniciando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Iniciar Clonagem</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
