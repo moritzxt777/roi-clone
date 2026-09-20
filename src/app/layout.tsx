@@ -9,6 +9,14 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://roi-clone.site'),
   title: 'ROI Clone - Clone páginas e publique no seu domínio',
   description: 'Clone qualquer página web e publique no seu próprio domínio. Editor visual, SSL automático, sem planos - só conecte seu domínio.',
+  icons: {
+    icon: [
+      { url: '/icon.png', sizes: 'any' },
+      { url: '/favicon.ico', sizes: '32x32' },
+    ],
+    shortcut: '/favicon.ico',
+    apple: '/apple-icon.png',
+  },
 };
 
 export default function RootLayout({
