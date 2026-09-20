@@ -17,12 +17,14 @@ import {
   Menu, 
   ArrowRight,
   ExternalLink,
-  Sparkles
+  Sparkles,
+  Flame
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Início', href: '/dashboard', icon: Home },
   { name: 'Projetos', href: '/dashboard/clones', icon: Layers },
+  { name: 'Ofertas', href: '/dashboard/ofertas', icon: Flame, badge: 'NOVO' },
   { name: 'ROI IA Copilot', href: '/dashboard/ai', icon: Sparkles },
   { name: 'Leads', href: '/dashboard/forms', icon: Users },
   { name: 'Configurações', href: '/dashboard/settings', icon: Settings },
@@ -136,19 +138,26 @@ export default function DashboardLayout({
           </Link>
           <nav className="space-y-1">
             {navigation.map((item, idx) => {
-              const isActive = pathname === item.href;
+              const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
               return (
                 <Link
                   key={idx}
                   href={item.href}
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
+                    'flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition-colors',
                     isActive ? 'bg-white/10 text-white font-semibold' : 'text-neutral-400 hover:bg-white/5 hover:text-white'
                   )}
                 >
-                  <item.icon className="w-4 h-4" />
-                  {item.name}
+                  <div className="flex items-center gap-3">
+                    <item.icon className="w-4 h-4" />
+                    <span>{item.name}</span>
+                  </div>
+                  {'badge' in item && item.badge && (
+                    <span className="text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                      {item.badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -192,14 +201,21 @@ export default function DashboardLayout({
                 key={`${item.name}-${index}`}
                 href={item.href}
                 className={cn(
-                  'flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-medium transition-all',
+                  'flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-medium transition-all',
                   isActive 
                     ? 'bg-blue-600/10 text-blue-400 font-semibold border border-blue-500/20' 
                     : 'text-neutral-400 hover:bg-white/5 hover:text-white'
                 )}
               >
-                <item.icon className={cn('w-4 h-4', isActive ? 'text-blue-400' : 'text-neutral-500')} />
-                <span>{item.name}</span>
+                <div className="flex items-center gap-3">
+                  <item.icon className={cn('w-4 h-4', isActive ? 'text-blue-400' : 'text-neutral-500')} />
+                  <span>{item.name}</span>
+                </div>
+                {'badge' in item && item.badge && (
+                  <span className="text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}
