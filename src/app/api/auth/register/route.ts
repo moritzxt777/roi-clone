@@ -78,22 +78,40 @@ export async function POST(request: NextRequest) {
     }
 
     // Enviar e-mail de boas-vindas com o template visual da ROI Clone e link direto
-    try {
-      const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
-      const confirmUrl = autoLoginToken ? `${appUrl}/auth/verify?token=${autoLoginToken}` : `${appUrl}/dashboard`;
+    let emailSent = false;
+    let emailError: string | undefined;
+    const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
+    const confirmUrl = autoLoginToken ? `${appUrl}/auth/verify?token=${autoLoginToken}` : `${appUrl}/dashboard`;
 
-      await sendWelcomeEmail({
+    try {
+      const emailRes = await sendWelcomeEmail({
         to: user.email,
         name: user.name || 'Usuário',
         confirmUrl,
         token: autoLoginToken,
       });
-    } catch (err) {
+
+      emailSent = emailRes.success;
+      if (!emailRes.success) {
+        emailError = emailRes.error;
+        console.warn(`[Register] Falha no envio de e-mail para ${user.email}:`, emailRes.error);
+      } else {
+        console.log(`[Register] E-mail enviado com sucesso para ${user.email}`);
+      }
+    } catch (err: any) {
+      emailError = err?.message || 'Erro inesperado no envio de e-mail';
       console.warn('Falha no envio de e-mail de boas-vindas:', err);
     }
 
     return NextResponse.json(
-      { user, autoLoginToken, message: 'Conta criada com sucesso' },
+      { 
+        user, 
+        autoLoginToken, 
+        emailSent, 
+        emailError, 
+        confirmUrl: autoLoginToken ? confirmUrl : undefined,
+        message: 'Conta criada com sucesso' 
+      },
       { status: 201 }
     );
   } catch (error) {

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Mail, ArrowRight, CheckCircle2, RotateCcw, Loader2 } from 'lucide-react';
+import { Mail, ArrowRight, CheckCircle2, RotateCcw, Loader2, AlertTriangle, ExternalLink } from 'lucide-react';
 
 export default function RegisterForm() {
   const [isLoading, setIsLoading] = useState(false);
@@ -15,6 +15,12 @@ export default function RegisterForm() {
   const [registeredEmail, setRegisteredEmail] = useState('');
   const [isResending, setIsResending] = useState(false);
   const [resendStatus, setResendStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [resendMessage, setResendMessage] = useState('');
+  const [deliveryInfo, setDeliveryInfo] = useState<{
+    sent: boolean;
+    error?: string;
+    confirmUrl?: string;
+  } | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -38,6 +44,7 @@ export default function RegisterForm() {
     if (!registeredEmail) return;
     setIsResending(true);
     setResendStatus('idle');
+    setResendMessage('');
 
     try {
       const res = await fetch('/api/auth/resend-verification', {
@@ -46,13 +53,24 @@ export default function RegisterForm() {
         body: JSON.stringify({ email: registeredEmail }),
       });
 
-      if (res.ok) {
+      const data = await res.json();
+
+      if (res.ok && data.success) {
         setResendStatus('success');
+        setResendMessage(data.message || 'Novo link enviado com sucesso!');
+        if (data.confirmUrl) {
+          setDeliveryInfo(prev => ({ ...(prev || { sent: true }), confirmUrl: data.confirmUrl }));
+        }
       } else {
         setResendStatus('error');
+        setResendMessage(data.message || data.error || 'Erro ao reenviar.');
+        if (data.confirmUrl) {
+          setDeliveryInfo(prev => ({ ...(prev || { sent: false }), confirmUrl: data.confirmUrl, error: data.error }));
+        }
       }
     } catch {
       setResendStatus('error');
+      setResendMessage('Erro de conexão ao tentar reenviar.');
     } finally {
       setIsResending(false);
     }
@@ -95,8 +113,13 @@ export default function RegisterForm() {
       }
 
       // Conta criada: NÃO entra no dashboard ainda!
-      // Exibe tela para o usuário confirmar no e-mail
+      // Exibe a tela com instruções de confirmação
       setRegisteredEmail(formData.email);
+      setDeliveryInfo({
+        sent: data.emailSent ?? true,
+        error: data.emailError,
+        confirmUrl: data.confirmUrl,
+      });
     } catch {
       setError('Erro ao criar conta');
     } finally {
@@ -108,7 +131,7 @@ export default function RegisterForm() {
   if (registeredEmail) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#0a0a0a] px-4 font-sans text-white">
-        <div className="w-full max-w-[420px] rounded-3xl border border-white/10 bg-[#0d0f18]/90 p-8 shadow-2xl backdrop-blur-xl text-center animate-in fade-in zoom-in-95 duration-200">
+        <div className="w-full max-w-[440px] rounded-3xl border border-white/10 bg-[#0d0f18]/90 p-8 shadow-2xl backdrop-blur-xl text-center animate-in fade-in zoom-in-95 duration-200">
           <div className="mb-6 flex justify-center">
             <img src="/roi-logo.png" alt="ROI Clone" className="h-10 w-auto rounded object-contain" />
           </div>
@@ -119,7 +142,7 @@ export default function RegisterForm() {
 
           <div className="inline-block px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full mb-3">
             <span className="text-[11px] font-mono font-bold text-blue-400 uppercase tracking-wider">
-              Confirmação Pendente
+              Confirmação Necessária
             </span>
           </div>
 
@@ -127,28 +150,63 @@ export default function RegisterForm() {
             Verifique seu e-mail
           </h1>
 
-          <p className="text-xs text-neutral-400 leading-relaxed mb-4">
-            Enviamos um e-mail de ativação para:
+          <p className="text-xs text-neutral-400 leading-relaxed mb-3">
+            Para ativar sua máquina, enviamos o link de acesso para:
           </p>
 
-          <div className="p-3 bg-white/5 border border-white/10 rounded-xl font-mono text-xs text-blue-400 font-semibold break-all mb-6">
+          <div className="p-3 bg-white/5 border border-white/10 rounded-xl font-mono text-xs text-blue-400 font-semibold break-all mb-5">
             {registeredEmail}
           </div>
 
-          <p className="text-xs text-neutral-300 leading-relaxed mb-6">
-            Abra seu e-mail e clique no botão <strong className="text-white">"Confirmar E-mail e Entrar no Painel"</strong>. Ao clicar, sua conta será validada e você entrará <strong>diretamente no Dashboard</strong>!
+          {deliveryInfo?.sent && (
+            <div className="mb-5 p-3 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex items-center justify-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>E-mail enviado! Acesse sua caixa de entrada e spam.</span>
+            </div>
+          )}
+
+          {/* Se o envio falhou (por exemplo, conta Resend em modo de teste com e-mail não verificado) */}
+          {deliveryInfo && !deliveryInfo.sent && (
+            <div className="mb-5 p-4 bg-amber-950/40 border border-amber-500/30 rounded-2xl text-left text-xs space-y-2.5 animate-in fade-in">
+              <div className="flex items-center gap-2 font-semibold text-amber-400">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>Aviso de Envio de E-mail</span>
+              </div>
+              <p className="text-[11px] text-neutral-300 leading-relaxed">
+                {deliveryInfo.error || 'O provedor de e-mail (Resend) está em modo restrito de teste.'}
+              </p>
+              
+              {deliveryInfo.confirmUrl && (
+                <div className="pt-2 border-t border-white/10 space-y-2">
+                  <p className="text-[11px] text-neutral-400">
+                    💡 <strong>Ativação direta disponível:</strong> Como este é um teste, você pode ativar a conta e entrar agora clicando abaixo:
+                  </p>
+                  <a
+                    href={deliveryInfo.confirmUrl}
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-semibold text-white shadow-lg shadow-blue-500/25 hover:bg-blue-500 transition-all active:scale-[0.98]"
+                  >
+                    <span>Confirmar E-mail e Entrar no Painel</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-neutral-400 leading-relaxed mb-6">
+            Ao clicar no botão de confirmação dentro do e-mail, sua conta será validada e você entrará <strong>diretamente no Dashboard</strong>!
           </p>
 
           {resendStatus === 'success' && (
             <div className="mb-4 p-3 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex items-center justify-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>Novo link enviado! Verifique sua caixa de entrada e spam.</span>
+              <span>{resendMessage || 'Novo link enviado! Verifique sua caixa de entrada e spam.'}</span>
             </div>
           )}
 
           {resendStatus === 'error' && (
             <div className="mb-4 p-3 text-xs text-red-400 bg-red-950/40 border border-red-500/30 rounded-xl">
-              Erro ao reenviar e-mail. Tente novamente em alguns instantes.
+              {resendMessage || 'Erro ao reenviar e-mail. Tente novamente em alguns instantes.'}
             </div>
           )}
 
@@ -158,7 +216,7 @@ export default function RegisterForm() {
               variant="outline"
               onClick={handleResendEmail}
               disabled={isResending}
-              className="w-full h-11 border border-white/10 bg-white/5 text-xs text-white hover:bg-white/10 rounded-xl flex items-center justify-center gap-2 transition-all"
+              className="w-full h-11 border border-white/10 bg-white/5 text-xs text-white hover:bg-white/10 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               {isResending ? (
                 <>
@@ -185,8 +243,12 @@ export default function RegisterForm() {
           <div className="mt-6 text-center text-xs text-neutral-500">
             Digitou o e-mail errado?{' '}
             <button
-              onClick={() => setRegisteredEmail('')}
-              className="text-blue-400 hover:underline cursor-pointer"
+              onClick={() => {
+                setRegisteredEmail('');
+                setDeliveryInfo(null);
+                setResendStatus('idle');
+              }}
+              className="text-blue-400 hover:underline cursor-pointer font-medium"
             >
               Cadastrar com outro e-mail
             </button>

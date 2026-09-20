@@ -30,14 +30,27 @@ export async function POST(req: NextRequest) {
     const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
     const confirmUrl = `${appUrl}/auth/verify?token=${token}`;
 
-    await sendWelcomeEmail({
+    const result = await sendWelcomeEmail({
       to: user.email,
       name: user.name || 'Usuário',
       confirmUrl,
       token,
     });
 
-    return NextResponse.json({ success: true, message: 'Novo e-mail de confirmação enviado com sucesso!' });
+    if (!result.success) {
+      return NextResponse.json({
+        success: false,
+        error: result.error,
+        confirmUrl,
+        message: result.error,
+      }, { status: 400 });
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      confirmUrl,
+      message: 'Novo e-mail de confirmação enviado com sucesso!' 
+    });
   } catch (error: any) {
     console.error('Erro ao reenviar e-mail de confirmação:', error);
     return NextResponse.json({ error: 'Erro ao enviar e-mail. Tente novamente mais tarde.' }, { status: 500 });
