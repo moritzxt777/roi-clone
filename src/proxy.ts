@@ -28,11 +28,25 @@ export const proxy = auth((req) => {
     }
   }
 
-  if (pathname.startsWith('/admin-master') || pathname.startsWith('/api/admin-master') || pathname.startsWith('/admin')) {
-    const limitResult = checkRateLimit(`admin_${ip}`, 30, 60000); // 30 requisições por minuto
+  // Bloqueio permanente de rotas legadas antigas deletadas (Retorna 404)
+  if (
+    pathname === '/admin' || 
+    pathname.startsWith('/admin/') || 
+    pathname === '/admin-master' || 
+    pathname.startsWith('/admin-master/') ||
+    pathname.startsWith('/api/admin/') ||
+    pathname === '/api/admin' ||
+    pathname.startsWith('/api/admin-master')
+  ) {
+    return new NextResponse('Not Found', { status: 404 });
+  }
+
+  // Rate Limiting para Moritz Admin
+  if (pathname.startsWith('/moritzadmin171roi') || pathname.startsWith('/api/moritzadmin171roi')) {
+    const limitResult = checkRateLimit(`moritzadmin_${ip}`, 45, 60000); // 45 req/min
     if (!limitResult.success) {
       return new NextResponse(
-        JSON.stringify({ error: 'Limite de requisições administrativas excedido.', retryAfter: limitResult.resetTime }),
+        JSON.stringify({ error: 'Limite de requisições excedido.', retryAfter: limitResult.resetTime }),
         { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': String(limitResult.resetTime) } }
       );
     }
@@ -48,21 +62,20 @@ export const proxy = auth((req) => {
     }
   }
 
-  // 2. Proteção de Rotas Administrativas (/admin-master e /admin)
-  const isMasterAdmin = pathname.startsWith('/admin-master') || pathname.startsWith('/api/admin-master');
-  const isLegacyAdmin = pathname.startsWith('/admin') || pathname.startsWith('/api/admin');
-  const isAnyAdmin = isMasterAdmin || isLegacyAdmin;
-
-  if (isAnyAdmin) {
+  // 2. Proteção Estrita do Painel Moritz Admin (/moritzadmin171roi)
+  const isMoritzAdmin = pathname.startsWith('/moritzadmin171roi') || pathname.startsWith('/api/moritzadmin171roi');
+  if (isMoritzAdmin) {
     if (!isLoggedIn) {
       if (pathname.startsWith('/api/')) {
         return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
       }
       return NextResponse.redirect(new URL(`/login?callbackUrl=${pathname}`, req.nextUrl));
     }
-    if (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
+
+    const userEmail = req.auth?.user?.email?.toLowerCase();
+    if (userEmail !== 'moritzadmin777roi@gmail.com' || (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN')) {
       if (pathname.startsWith('/api/')) {
-        return NextResponse.json({ error: 'Acesso restrito a administradores' }, { status: 403 });
+        return NextResponse.json({ error: 'Não encontrado' }, { status: 404 });
       }
       return NextResponse.redirect(new URL('/dashboard', req.nextUrl));
     }
@@ -100,6 +113,7 @@ export const config = {
   matcher: [
     '/',
     '/dashboard/:path*',
+    '/moritzadmin171roi/:path*',
     '/admin-master/:path*',
     '/admin/:path*',
     '/api/:path*',

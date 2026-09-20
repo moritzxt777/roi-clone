@@ -7,20 +7,18 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  const adminEmail = 'admin@roi-clone.local';
-  const adminPassword = 'admin123456';
+  const adminEmail = process.env.ADMIN_EMAIL || 'moritzadmin777roi@gmail.com';
+  const passwordHash = process.env.ADMIN_PASSWORD_HASH || '$2b$12$7d.gAXsML6/lVg4VVBKMNO/vEvbO3olX3W24bnDk.6MRY/eXTgR32';
 
   const existingAdmin = await prisma.user.findUnique({
     where: { email: adminEmail },
   });
 
   if (!existingAdmin) {
-    const passwordHash = await bcrypt.hash(adminPassword, 12);
-
     const admin = await prisma.user.create({
       data: {
         email: adminEmail,
-        name: 'Admin',
+        name: 'Moritz Admin',
         passwordHash,
         role: 'SUPER_ADMIN',
         emailVerified: new Date(),
@@ -28,7 +26,6 @@ async function main() {
     });
 
     console.log('✅ Admin user created:', admin.email);
-    console.log('🔑 Password:', adminPassword);
   } else {
     console.log('ℹ️ Admin user already exists');
   }
