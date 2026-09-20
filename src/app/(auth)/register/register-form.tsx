@@ -68,6 +68,22 @@ export default function RegisterForm() {
         return;
       }
 
+      // Auto-login imediato na conta criada
+      try {
+        const signInResult = await signIn('credentials', {
+          email: formData.email,
+          password: formData.password,
+          redirect: false,
+        });
+
+        if (signInResult?.ok) {
+          window.location.href = '/dashboard';
+          return;
+        }
+      } catch {
+        // Fallback caso ocorra algum problema no auto-sign-in imediato
+      }
+
       router.push('/login?registered=true');
     } catch {
       setError('Erro ao criar conta');

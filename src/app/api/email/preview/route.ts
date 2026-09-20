@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateWelcomeEmailHtml, sendWelcomeEmail } from '@/lib/mail';
+import { createVerificationToken } from '@/lib/tokens';
 import { auth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -33,9 +34,17 @@ export async function POST(req: NextRequest) {
     const targetEmail = body.to || session?.user?.email || 'moritzadmin777roi@gmail.com';
     const targetName = body.name || session?.user?.name || 'Administrador';
 
+    let token: string | undefined;
+    try {
+      token = await createVerificationToken(targetEmail);
+    } catch {
+      // ignore
+    }
+
     const result = await sendWelcomeEmail({
       to: targetEmail,
       name: targetName,
+      token,
     });
 
     return NextResponse.json({

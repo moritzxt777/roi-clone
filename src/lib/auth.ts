@@ -33,8 +33,43 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Senha', type: 'password' },
+        token: { label: 'Token', type: 'text' },
       },
       async authorize(credentials) {
+        // 1. Auto-login via Token de Confirmação de E-mail (Magic Link)
+        if (credentials?.token && typeof credentials.token === 'string') {
+          const vToken = await prisma.verificationToken.findUnique({
+            where: { token: credentials.token },
+          });
+
+          if (!vToken || vToken.expires < new Date()) {
+            throw new Error('Token de confirmação inválido ou expirado');
+          }
+
+          const user = await prisma.user.findUnique({
+            where: { email: vToken.identifier.toLowerCase() },
+          });
+
+          if (!user) {
+            throw new Error('Usuário não encontrado');
+          }
+
+          // Confirma o e-mail imediatamente no banco de dados
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerified: new Date() },
+          }).catch(() => {});
+
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            image: user.image || user.avatar,
+          };
+        }
+
+        // 2. Login tradicional por Email e Senha
         const parsed = loginSchema.safeParse(credentials);
         if (!parsed.success) {
           throw new Error('Credenciais inválidas');

@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma';
 import { registerSchema } from '@/lib/validations';
 import { generateApiKey } from '@/lib/validations';
 import { sendWelcomeEmail } from '@/lib/mail';
+import { createVerificationToken } from '@/lib/tokens';
 import { headers } from 'next/headers';
 
 export async function POST(request: NextRequest) {
@@ -68,18 +69,31 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Enviar e-mail de boas-vindas com o template visual da ROI Clone
+    // Gerar token de verificação e auto-login
+    let autoLoginToken = '';
     try {
+      autoLoginToken = await createVerificationToken(user.email);
+    } catch (tokenErr) {
+      console.error('Erro ao gerar token de verificação:', tokenErr);
+    }
+
+    // Enviar e-mail de boas-vindas com o template visual da ROI Clone e link direto
+    try {
+      const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
+      const confirmUrl = autoLoginToken ? `${appUrl}/auth/verify?token=${autoLoginToken}` : `${appUrl}/dashboard`;
+
       await sendWelcomeEmail({
         to: user.email,
         name: user.name || 'Usuário',
+        confirmUrl,
+        token: autoLoginToken,
       });
     } catch (err) {
       console.warn('Falha no envio de e-mail de boas-vindas:', err);
     }
 
     return NextResponse.json(
-      { user, message: 'Conta criada com sucesso' },
+      { user, autoLoginToken, message: 'Conta criada com sucesso' },
       { status: 201 }
     );
   } catch (error) {

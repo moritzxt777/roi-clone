@@ -4,6 +4,8 @@ import { Resend } from 'resend';
 interface SendWelcomeEmailProps {
   to: string;
   name: string;
+  confirmUrl?: string;
+  token?: string;
 }
 
 interface SendEmailProps {
@@ -45,11 +47,11 @@ function createTransporter() {
 }
 
 /**
- * Gera o template HTML padrão ultra premium da ROI Clone
+ * Gera o template HTML padrão ultra premium da ROI Clone com suporte a confirmação direta
  */
-export function generateWelcomeEmailHtml(name: string, email: string): string {
-  const appUrl = process.env.NEXTAUTH_URL || 'https://www.roi-clone.site';
-  const dashboardUrl = `${appUrl}/dashboard`;
+export function generateWelcomeEmailHtml(name: string, email: string, confirmUrl?: string): string {
+  const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
+  const targetUrl = confirmUrl || `${appUrl}/dashboard`;
 
   return `
 <!DOCTYPE html>
@@ -186,13 +188,20 @@ export function generateWelcomeEmailHtml(name: string, email: string): string {
                 </tr>
               </table>
 
-              <!-- Botão Principal de Ação -->
+              <!-- Botão Principal de Ação (Confirmação com Auto-Login Imediato) -->
               <table border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
-                  <td align="center" style="padding-bottom: 30px;">
-                    <a href="${dashboardUrl}" target="_blank" style="display: inline-block; padding: 16px 36px; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff; font-size: 14px; font-weight: 800; text-decoration: none; border-radius: 14px; box-shadow: 0 8px 24px rgba(37, 99, 235, 0.45); text-align: center; text-transform: uppercase; letter-spacing: 0.5px;">
-                      ENTRAR NO PAINEL E CLONAR AGORA &rarr;
+                  <td align="center" style="padding-bottom: 20px;">
+                    <a href="${targetUrl}" target="_blank" style="display: inline-block; padding: 18px 40px; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff; font-size: 14px; font-weight: 800; text-decoration: none; border-radius: 14px; box-shadow: 0 10px 28px rgba(37, 99, 235, 0.45); text-align: center; text-transform: uppercase; letter-spacing: 0.5px;">
+                      CONFIRMAR E-MAIL E ENTRAR NO PAINEL &rarr;
                     </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-bottom: 28px;">
+                    <p style="margin: 0; font-size: 11px; color: #64748b; line-height: 18px; text-align: center;">
+                      ⚡ <strong>Acesso Direto:</strong> Ao clicar no botão, sua conta é confirmada e você é autenticado instantaneamente no Dashboard.
+                    </p>
                   </td>
                 </tr>
               </table>
@@ -309,13 +318,19 @@ export async function sendEmail({ to, subject, html, text }: SendEmailProps): Pr
 }
 
 /**
- * Envia o e-mail de boas-vindas com o template visual da ROI Clone
+ * Envia o e-mail de boas-vindas / confirmação com o template visual da ROI Clone
  */
-export async function sendWelcomeEmail({ to, name }: SendWelcomeEmailProps) {
-  const html = generateWelcomeEmailHtml(name, to);
+export async function sendWelcomeEmail({ to, name, confirmUrl, token }: SendWelcomeEmailProps) {
+  let targetConfirmUrl = confirmUrl;
+  if (!targetConfirmUrl && token) {
+    const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
+    targetConfirmUrl = `${appUrl}/auth/verify?token=${token}`;
+  }
+
+  const html = generateWelcomeEmailHtml(name, to, targetConfirmUrl);
   return await sendEmail({
     to,
-    subject: '⚡ Bem-vindo ao ROI Clone! Sua conta está pronta',
+    subject: '⚡ Confirme seu e-mail e acesse o ROI Clone',
     html,
   });
 }

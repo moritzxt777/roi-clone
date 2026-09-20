@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,14 @@ import { Badge } from '@/components/ui/badge';
 
 export default function HomePage() {
   const [url, setUrl] = useState('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.hash.includes('access_token') || window.location.search.includes('token=')) {
+        window.location.href = `/auth/verify${window.location.search}${window.location.hash}`;
+      }
+    }
+  }, []);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground">
