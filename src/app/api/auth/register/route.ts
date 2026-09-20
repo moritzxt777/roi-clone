@@ -10,7 +10,16 @@ import { headers } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: 'Corpo da requisição inválido ou vazio' },
+        { status: 400 }
+      );
+    }
+
     const parsed = registerSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -21,9 +30,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { name, email, password } = parsed.data;
+    const cleanEmail = email.toLowerCase().trim();
 
     const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: cleanEmail },
     });
 
     if (existingUser) {
@@ -38,7 +48,7 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.create({
       data: {
         name,
-        email: email.toLowerCase(),
+        email: cleanEmail,
         passwordHash,
         emailVerified: null,
       },
@@ -51,24 +61,32 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const { key, prefix, hash } = generateApiKey();
-    await prisma.apiKey.create({
-      data: {
-        name: 'Default API Key',
-        keyHash: hash,
-        prefix,
-        userId: user.id,
-      },
-    });
+    try {
+      const { prefix, hash } = generateApiKey();
+      await prisma.apiKey.create({
+        data: {
+          name: 'Default API Key',
+          keyHash: hash,
+          prefix,
+          userId: user.id,
+        },
+      });
+    } catch (apiKeyErr) {
+      console.warn('[Register] Aviso ao gerar chave de API:', apiKeyErr);
+    }
 
-    await prisma.auditLog.create({
-      data: {
-        userId: user.id,
-        action: 'REGISTER',
-        entity: 'User',
-        entityId: user.id,
-      },
-    });
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'REGISTER',
+          entity: 'User',
+          entityId: user.id,
+        },
+      });
+    } catch (auditErr) {
+      console.warn('[Register] Aviso ao gravar audit log:', auditErr);
+    }
 
     // Gerar token de verificação e auto-login
     let autoLoginToken = '';
@@ -104,14 +122,15 @@ export async function POST(request: NextRequest) {
       console.warn('Falha no envio de e-mail de boas-vindas:', err);
     }
 
+    // NUNCA vazar o token ou confirmUrl na resposta HTTP pública (apenas enviado por e-mail)
     return NextResponse.json(
       { 
         user, 
-        autoLoginToken, 
         emailSent, 
         emailError, 
-        confirmUrl: autoLoginToken ? confirmUrl : undefined,
-        message: 'Conta criada com sucesso' 
+        message: emailSent 
+          ? 'Conta criada com sucesso! Enviamos um link de confirmação para o seu e-mail.' 
+          : 'Conta criada com sucesso! Por favor, acerte a confirmação no seu e-mail.' 
       },
       { status: 201 }
     );

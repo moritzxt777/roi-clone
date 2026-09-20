@@ -3,9 +3,9 @@ import prisma from '@/lib/prisma';
 
 /**
  * Cria um token de verificação e auto-login para o e-mail do usuário.
- * Validade padrão: 7 dias.
+ * Validade padrão: 2 horas (tempo ideal para segurança e confirmação).
  */
-export async function createVerificationToken(email: string, expiresInHours = 168): Promise<string> {
+export async function createVerificationToken(email: string, expiresInHours = 2): Promise<string> {
   const cleanEmail = email.toLowerCase().trim();
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);

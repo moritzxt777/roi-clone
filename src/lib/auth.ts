@@ -23,11 +23,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     error: '/login',
   },
   providers: [
-    DiscordProvider({
-      clientId: process.env.DISCORD_CLIENT_ID || process.env.AUTH_DISCORD_ID || '1551107958325121145',
-      clientSecret: process.env.DISCORD_CLIENT_SECRET || process.env.AUTH_DISCORD_SECRET || 'CJTXIUnnZABZojAxPkHcWnhKlvKrbacL',
-      allowDangerousEmailAccountLinking: true,
-    }),
+    ...(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET
+      ? [
+          DiscordProvider({
+            clientId: process.env.DISCORD_CLIENT_ID,
+            clientSecret: process.env.DISCORD_CLIENT_SECRET,
+            allowDangerousEmailAccountLinking: true,
+          }),
+        ]
+      : []),
     CredentialsProvider({
       name: 'credentials',
       credentials: {
@@ -60,6 +64,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             data: { emailVerified: new Date() },
           }).catch(() => {});
 
+          // Invalida e remove o token após o uso (prevenção de replay attack)
+          await prisma.verificationToken.delete({
+            where: { token: credentials.token },
+          }).catch(() => {});
+
           return {
             id: user.id,
             email: user.email,
@@ -90,7 +99,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           throw new Error('Credenciais inválidas');
         }
 
-        const isMaster = user.email.toLowerCase() === 'moritzadmin777roi@gmail.com';
+        const isMaster = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' || user.email.toLowerCase() === 'moritzadmin777roi@gmail.com';
         if (!user.emailVerified && !isMaster) {
           throw new Error('E-mail pendente de confirmação. Por favor, abra seu e-mail e clique no link de validação para liberar o acesso.');
         }

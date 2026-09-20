@@ -57,51 +57,6 @@ function VerifyContent() {
         return;
       }
 
-      // 2. Caso o usuário tenha vindo do Supabase com fragmento de hash (#access_token=...)
-      if (typeof window !== 'undefined' && window.location.hash) {
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const accessToken = hashParams.get('access_token');
-
-        if (accessToken) {
-          try {
-            // Decodifica payload do JWT do Supabase para obter o e-mail
-            const parts = accessToken.split('.');
-            if (parts.length === 3) {
-              const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-              const email = payload.email;
-
-              if (email) {
-                // Chama a API interna para sincronizar/gerar token de sessão do NextAuth
-                const response = await fetch('/api/auth/auto-login', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ email, supabaseToken: accessToken }),
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.token) {
-                  const res = await signIn('credentials', {
-                    token: data.token,
-                    redirect: false,
-                  });
-
-                  if (res?.ok) {
-                    setStatus('success');
-                    setTimeout(() => {
-                      window.location.href = '/dashboard';
-                    }, 1200);
-                    return;
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.error('Falha ao processar token Supabase:', e);
-          }
-        }
-      }
-
       // Se nenhum token for detectado
       setStatus('error');
       setErrorMessage('Nenhum código de verificação foi encontrado neste link.');

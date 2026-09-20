@@ -49,9 +49,13 @@ export async function validateUrl(targetUrl: string): Promise<string> {
   }
 
   try {
-    const res = await lookup(hostname, { family: 4 }).catch(() => null);
-    if (res && res.address && isPrivateIP(res.address)) {
-      throw new SSRFError('URLs que resolvem para redes privadas são bloqueadas.');
+    const addresses = await lookup(hostname, { all: true }).catch(() => null);
+    if (Array.isArray(addresses)) {
+      for (const addr of addresses) {
+        if (addr.address && isPrivateIP(addr.address)) {
+          throw new SSRFError('URLs que resolvem para redes privadas são bloqueadas.');
+        }
+      }
     }
   } catch (error: any) {
     if (error instanceof SSRFError) throw error;
@@ -64,6 +68,9 @@ export async function validateUrl(targetUrl: string): Promise<string> {
  * Checks if an IP is within a private network range.
  */
 function isPrivateIP(ip: string): boolean {
+  if (ip === '::1' || ip === '0:0:0:0:0:0:0:1') return true;
+  if (ip.startsWith('fe80:') || ip.startsWith('fc') || ip.startsWith('fd')) return true;
+
   const parts = ip.split('.').map(Number);
   if (parts.length !== 4) return false;
 
@@ -81,11 +88,14 @@ function isPrivateIP(ip: string): boolean {
   // 127.0.0.0/8
   if (a === 127) return true;
 
-  // 169.254.0.0/16 (Cloud Metadata IP)
+  // 169.254.0.0/16 (Cloud Metadata IP - AWS/GCP/Azure)
   if (a === 169 && b === 254) return true;
 
   // 0.0.0.0/8
   if (a === 0) return true;
+
+  // 100.64.0.0/10 (Carrier-grade NAT)
+  if (a === 100 && b >= 64 && b <= 127) return true;
 
   return false;
 }

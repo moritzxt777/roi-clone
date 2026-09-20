@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import crypto from 'crypto';
 
 export const registerSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres').max(100),
@@ -100,14 +101,20 @@ export function generateSlug(name: string): string {
 
 export function generateApiKey(): { key: string; prefix: string; hash: string } {
   const prefix = 'rk_';
-  const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  const randomPart = crypto.randomBytes(32).toString('hex');
   const key = `${prefix}${randomPart}`;
-  const hash = Buffer.from(key).toString('base64');
+  const hash = crypto.createHash('sha256').update(key).digest('hex');
   return { key, prefix: prefix.slice(0, -1), hash };
 }
 
 export function verifyApiKey(key: string, hash: string): boolean {
-  return Buffer.from(key).toString('base64') === hash;
+  try {
+    const computed = crypto.createHash('sha256').update(key).digest('hex');
+    const computedBuffer = Buffer.from(computed);
+    const hashBuffer = Buffer.from(hash);
+    if (computedBuffer.length !== hashBuffer.length) return false;
+    return crypto.timingSafeEqual(computedBuffer, hashBuffer);
+  } catch {
+    return false;
+  }
 }

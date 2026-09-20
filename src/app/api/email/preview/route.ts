@@ -5,17 +5,40 @@ import { auth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // GET /api/email/preview -> Renderiza o HTML do e-mail visualmente no navegador
 export async function GET(req: NextRequest) {
+  const session = await auth();
+  const isMaster =
+    session?.user?.role === 'SUPER_ADMIN' ||
+    session?.user?.role === 'ADMIN' ||
+    session?.user?.email?.toLowerCase() === 'moritzadmin777roi@gmail.com';
+
+  if (!isMaster) {
+    return NextResponse.json(
+      { error: 'Acesso restrito a administradores autenticados' },
+      { status: 403 }
+    );
+  }
+
   const { searchParams } = new URL(req.url);
-  const name = searchParams.get('name') || 'Moritz Admin';
-  const email = searchParams.get('email') || 'moritzadmin777roi@gmail.com';
+  const name = escapeHtml(searchParams.get('name') || 'Moritz Admin');
+  const email = escapeHtml(searchParams.get('email') || 'moritzadmin777roi@gmail.com');
 
   const html = generateWelcomeEmailHtml(name, email);
 
   return new NextResponse(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
     },
   });
 }

@@ -6,7 +6,13 @@ import { getAppUrl } from '@/lib/url';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    let body: any;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Corpo da requisição inválido' }, { status: 400 });
+    }
+
     const email = body.email?.toLowerCase().trim();
 
     if (!email) {
@@ -42,14 +48,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: false,
         error: result.error,
-        confirmUrl,
-        message: result.error,
+        message: result.error || 'Falha ao enviar e-mail. Tente novamente mais tarde.',
       }, { status: 400 });
     }
 
+    // NUNCA vazar o confirmUrl na resposta HTTP pública (apenas enviado por e-mail)
     return NextResponse.json({ 
       success: true, 
-      confirmUrl,
       message: 'Novo e-mail de confirmação enviado com sucesso!' 
     });
   } catch (error: any) {

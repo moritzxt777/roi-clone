@@ -41,8 +41,7 @@ function createTransporter() {
       pass,
     },
     tls: {
-      // Evita erros de certificados auto-assinados em hosts compartilhados
-      rejectUnauthorized: false,
+      rejectUnauthorized: process.env.EMAIL_ALLOW_SELF_SIGNED === 'true' ? false : true,
     },
   });
 }
@@ -53,6 +52,12 @@ function createTransporter() {
 export function generateWelcomeEmailHtml(name: string, email: string, confirmUrl?: string): string {
   const appUrl = getAppUrl();
   const targetUrl = confirmUrl || `${appUrl}/dashboard`;
+  const safeName = (name || 'Usuário')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 
   return `
 <!DOCTYPE html>
@@ -137,7 +142,7 @@ export function generateWelcomeEmailHtml(name: string, email: string, confirmUrl
 
               <!-- Saudação -->
               <h3 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 700; color: #ffffff; letter-spacing: -0.3px;">
-                Fala, ${name}! Seja bem-vindo à máquina. 🚀
+                Fala, ${safeName}! Seja bem-vindo à máquina. 🚀
               </h3>
               
               <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 25px; color: #94a3b8;">

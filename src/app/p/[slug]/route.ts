@@ -13,7 +13,6 @@ export async function GET(
     where: {
       OR: [
         { slug: slug },
-        { slug: { startsWith: slug } },
         { id: slug },
       ]
     },
