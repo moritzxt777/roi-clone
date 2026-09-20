@@ -1,14 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
-const BACKEND_NVIDIA_KEY = process.env.NVIDIA_API_KEY || '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';
+const BACKEND_NVIDIA_KEY = process.env.NVIDIA_API_KEY;
 const MODEL_NAME = process.env.NVIDIA_MODEL || 'z-ai/glm-5.3-flash';
+
+// Sanitiza trechos de HTML para não desperdiçar tokens com base64 e scripts binários
+function sanitizeHtmlForAiContext(html?: string): string {
+  if (!html) return '';
+  return html
+    .replace(/data:image\/[^;]+;base64,[a-zA-Z0-9+/=]+/g, '[imagem-base64]')
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '<svg>[ícone-vetorial]</svg>')
+    .slice(0, 1200);
+}
 
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    }
+
+    if (!BACKEND_NVIDIA_KEY) {
+      console.error('NVIDIA_API_KEY não configurada no servidor.');
+      return NextResponse.json({ 
+        error: 'Chave de API da ROI IA não configurada no servidor (.env).' 
+      }, { status: 500 });
     }
 
     const body = await req.json();
@@ -30,6 +47,8 @@ export async function POST(req: NextRequest) {
     if (emailPix) extractedPixKey = emailPix[0];
     else if (cpfPix) extractedPixKey = cpfPix[0];
     else if (phonePix) extractedPixKey = phonePix[0];
+
+    const cleanedHtmlContext = sanitizeHtmlForAiContext(currentHtml);
 
     // Preparar mensagens com histórico de conversa para manter contexto fluido
     const formattedMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
@@ -63,13 +82,13 @@ Você atua com duas funções principais:
 Contexto do Projeto:
 - Nome do projeto: "${projectName || 'Projeto Clonado'}"
 ${selectedElement ? `- Elemento selecionado no editor: <${selectedElement.tagName}> "${selectedElement.text || ''}" (ID: ${selectedElement.id})` : ''}
-${currentHtml ? `- Trecho HTML da página atual: ${currentHtml.slice(0, 1500)}` : ''}`,
+${cleanedHtmlContext ? `- Estrutura HTML da página atual:\n${cleanedHtmlContext}` : ''}`,
       },
     ];
 
-    // Adicionar histórico prévio se fornecido
+    // Adicionar histórico recente enxuto (últimas 6 mensagens) para economizar tokens
     if (Array.isArray(history)) {
-      history.slice(-8).forEach((h) => {
+      history.slice(-6).forEach((h) => {
         if (h.role === 'user' || h.role === 'assistant') {
           formattedMessages.push({ role: h.role, content: h.content });
         }
@@ -90,8 +109,8 @@ ${currentHtml ? `- Trecho HTML da página atual: ${currentHtml.slice(0, 1500)}` 
         body: JSON.stringify({
           model: MODEL_NAME,
           messages: formattedMessages,
-          temperature: 0.6,
-          max_tokens: 1536,
+          temperature: 0.5,
+          max_tokens: 1200,
         }),
       });
 

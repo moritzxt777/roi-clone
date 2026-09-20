@@ -91,3 +91,5 @@ export const config = {
     '/api/:path*',
   ],
 };
+
+export default proxy;

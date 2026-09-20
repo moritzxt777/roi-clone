@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { validateUrl } from '@/lib/security/url-validator';
 
-const BACKEND_NVIDIA_KEY = process.env.NVIDIA_API_KEY || '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';
+const BACKEND_NVIDIA_KEY = process.env.NVIDIA_API_KEY;
 const MODEL_NAME = process.env.NVIDIA_MODEL || 'z-ai/glm-5.3-flash';
 
 export async function POST(req: NextRequest) {
@@ -18,14 +19,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'URL inválida' }, { status: 400 });
     }
 
-    // 1. Tenta buscar título e metadados rápidos da página
+    // Validação estrita contra Server-Side Request Forgery (SSRF)
+    let validatedUrl = url;
+    try {
+      validatedUrl = await validateUrl(url);
+    } catch (urlErr: any) {
+      return NextResponse.json({ error: urlErr.message || 'URL não permitida' }, { status: 400 });
+    }
+
+    // 1. Tenta buscar título e metadados rápidos da página com timeout estrito
     let pageTitle = '';
     let pageDescription = '';
     let detectedH1 = '';
 
     try {
-      const res = await axios.get(url, {
-        timeout: 5000,
+      const res = await axios.get(validatedUrl, {
+        timeout: 4000,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml',
@@ -47,8 +56,9 @@ export async function POST(req: NextRequest) {
     let suggestedName = pageTitle || detectedH1 || '';
     let productType = 'Página de Vendas';
 
-    try {
-      const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+    if (BACKEND_NVIDIA_KEY) {
+      try {
+        const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -83,6 +93,7 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       console.warn('ROI IA auto-suggest warning:', err);
+    }
     }
 
     if (!suggestedName) {
