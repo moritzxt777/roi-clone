@@ -69,12 +69,14 @@ export async function POST(request: NextRequest) {
     });
 
     // Enviar e-mail de boas-vindas com o template visual da ROI Clone
-    sendWelcomeEmail({
-      to: user.email,
-      name: user.name || 'Usuário',
-    }).catch((err) => {
+    try {
+      await sendWelcomeEmail({
+        to: user.email,
+        name: user.name || 'Usuário',
+      });
+    } catch (err) {
       console.warn('Falha no envio de e-mail de boas-vindas:', err);
-    });
+    }
 
     return NextResponse.json(
       { user, message: 'Conta criada com sucesso' },
