@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { EditorElement, useEditorStore } from '@/stores/editor-store';
 import { EditorTopbar } from './editor-topbar';
 import { EditorSidebar } from './editor-sidebar';
@@ -52,43 +52,41 @@ export function EditorClient({
   discoveredSubpages = [],
   meta = {},
 }: EditorClientProps) {
-  const initialized = useRef(false);
+  const [isMounted, setIsMounted] = useState(false);
 
-  // Inicialização síncrona e imediata antes do primeiro render dos filhos
-  if (!initialized.current && html) {
+  useEffect(() => {
     useEditorStore.setState({
       pageId,
       cloneId,
       projectName,
       sourceUrl,
-      elements: initialElements,
+      elements: initialElements || [],
       css,
       html,
-      availablePages,
-      discoveredSubpages,
-      meta,
+      availablePages: availablePages || [],
+      discoveredSubpages: discoveredSubpages || [],
+      meta: meta || {},
       saveStatus: 'saved',
     });
-    initialized.current = true;
-  }
-
-  useEffect(() => {
-    // Garante sincronização caso props mudem
-    if (html) {
-      useEditorStore.setState({
-        pageId,
-        cloneId,
-        projectName,
-        sourceUrl,
-        elements: initialElements,
-        css,
-        html,
-        availablePages,
-        discoveredSubpages,
-        meta,
-      });
-    }
+    setIsMounted(true);
   }, [pageId, cloneId, projectName, sourceUrl, initialElements, css, html, availablePages, discoveredSubpages, meta]);
+
+  if (!isMounted) {
+    return (
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-[#07080b] text-white selection:bg-blue-600/30">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="relative">
+            <img src="/roi-logo.png" alt="ROI Clone" className="h-10 w-auto rounded object-contain" />
+            <div className="absolute -inset-2 rounded-xl bg-blue-500/20 blur-lg animate-pulse -z-10" />
+          </div>
+          <div className="flex items-center gap-2.5 text-xs text-neutral-400">
+            <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+            <span>Carregando editor visual...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-full flex-col bg-[#07080b] text-white overflow-hidden selection:bg-blue-600/30 font-sans">

@@ -121,7 +121,7 @@ export async function getEditorData(id: string, userId?: string) {
 
     // Fetch other user pages to enable instant multi-page funnel switching
     const userPages = await prisma.page.findMany({
-      where: { userId },
+      where: { userId: clone.userId },
       select: {
         id: true,
         name: true,
@@ -185,7 +185,7 @@ export async function getEditorData(id: string, userId?: string) {
     });
 
     const userPages = await prisma.page.findMany({
-      where: { userId },
+      where: { userId: page.userId },
       select: {
         id: true,
         name: true,

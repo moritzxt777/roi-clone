@@ -99,7 +99,7 @@ export function EditorTopbar() {
 
       const data = await res.json();
       if (data.pageId) {
-        window.location.href = `/editor/${data.pageId}`;
+        window.location.href = `/dashboard/projeto/${data.pageId}`;
       }
     } catch (err) {
       console.error('Error creating subpage:', err);
@@ -289,7 +289,7 @@ export function EditorTopbar() {
                         onClick={() => {
                           setIsPageDropdownOpen(false);
                           if (!isCurrent) {
-                            window.location.href = `/editor/${pageItem.id}`;
+                            window.location.href = `/dashboard/projeto/${pageItem.id}`;
                           }
                         }}
                         className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-all ${

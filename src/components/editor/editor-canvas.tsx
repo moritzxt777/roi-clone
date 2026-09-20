@@ -1,7 +1,7 @@
 'use client';
 
 import { useEditorStore } from '@/stores/editor-store';
-import { useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 
 interface EditorCanvasProps {
   initialHtml?: string;
@@ -242,7 +242,7 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
       });
       const data = await res.json();
       if (data.pageId) {
-        window.location.href = `/editor/${data.pageId}`;
+        window.location.href = `/dashboard/projeto/${data.pageId}`;
       }
     } catch (err) {
       console.error('Error switching to subpage:', err);
