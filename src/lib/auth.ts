@@ -23,8 +23,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   providers: [
     DiscordProvider({
-      clientId: process.env.DISCORD_CLIENT_ID || '',
-      clientSecret: process.env.DISCORD_CLIENT_SECRET || '',
+      clientId: process.env.DISCORD_CLIENT_ID || process.env.AUTH_DISCORD_ID || '',
+      clientSecret: process.env.DISCORD_CLIENT_SECRET || process.env.AUTH_DISCORD_SECRET || '',
       allowDangerousEmailAccountLinking: true,
     }),
     CredentialsProvider({
