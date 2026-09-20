@@ -43,11 +43,7 @@ function VerifyContent() {
             }, 800);
           } else {
             setStatus('error');
-            setErrorMessage(
-              res?.error === 'Token de confirmação inválido ou expirado'
-                ? 'Este link de confirmação já foi utilizado ou expirou.'
-                : 'Não foi possível autenticar sua conta automaticamente.'
-            );
+            setErrorMessage('Este link de confirmação é inválido ou já expirou. Você pode fazer login diretamente com seu e-mail e senha abaixo.');
           }
         } catch {
           if (!isMounted) return;

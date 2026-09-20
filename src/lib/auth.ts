@@ -64,9 +64,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             data: { emailVerified: new Date() },
           }).catch(() => {});
 
-          // Invalida e remove o token após o uso (prevenção de replay attack)
-          await prisma.verificationToken.delete({
-            where: { token: credentials.token },
+          // Dá uma janela de tolerância de 15 minutos para permitir recarregamento, duplo-clique e scanner de antivírus do e-mail
+          const graceExpiration = new Date(Date.now() + 15 * 60 * 1000);
+          if (vToken.expires > graceExpiration) {
+            await prisma.verificationToken.update({
+              where: { token: credentials.token },
+              data: { expires: graceExpiration },
+            }).catch(() => {});
+          }
+
+          // Limpa tokens já expirados em segundo plano
+          prisma.verificationToken.deleteMany({
+            where: { expires: { lt: new Date() } },
           }).catch(() => {});
 
           return {

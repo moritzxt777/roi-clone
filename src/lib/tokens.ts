@@ -10,10 +10,13 @@ export async function createVerificationToken(email: string, expiresInHours = 2)
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
 
-  // Remove tokens anteriores para o mesmo e-mail para evitar acúmulo
+  // Limpa apenas tokens já expirados para este e-mail
   try {
     await prisma.verificationToken.deleteMany({
-      where: { identifier: cleanEmail },
+      where: { 
+        identifier: cleanEmail,
+        expires: { lt: new Date() },
+      },
     });
   } catch {
     // Silently ignore se não houver
