@@ -130,13 +130,55 @@ async function cloneWithCheerio(
     }
   }
 
-  // 1. Converter URLs relativas em absolutas (imagens, links, mídia)
+  // 1. Garantir tag <base> para resolução imediata de links e requisições dinâmicas
+  if ($('head').length > 0) {
+    if ($('base').length === 0) {
+      $('head').prepend(`<base href="${baseUrl.origin}/">`);
+    }
+  } else {
+    $('html').prepend(`<head><base href="${baseUrl.origin}/"></head>`);
+  }
+
+  // 2. Converter URLs relativas em absolutas (imagens, links, mídia, stylesheets)
+  $('link').each((_, el) => {
+    const href = $(el).attr('href');
+    if (href) $(el).attr('href', resolveUrl(href));
+  });
+
+  $('script').each((_, el) => {
+    const src = $(el).attr('src');
+    if (src) {
+      $(el).attr('src', resolveUrl(src));
+    } else {
+      let scriptContent = $(el).html() || '';
+      if (
+        scriptContent.includes('top.location') ||
+        scriptContent.includes('window.top') ||
+        scriptContent.includes('top !== self') ||
+        scriptContent.includes('self !== top')
+      ) {
+        scriptContent = scriptContent
+          .replace(/top\.location\s*=/gi, '// top.location =')
+          .replace(/window\.top\s*!==\s*window\.self/gi, 'false')
+          .replace(/top\s*!==\s*self/gi, 'false')
+          .replace(/self\s*!==\s*top/gi, 'false');
+        $(el).html(scriptContent);
+      }
+    }
+  });
+
   $('img').each((_, el) => {
     const src = $(el).attr('src');
     if (src) $(el).attr('src', resolveUrl(src));
 
-    const dataSrc = $(el).attr('data-src');
-    if (dataSrc) $(el).attr('data-src', resolveUrl(dataSrc));
+    const dataSrc = $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-lazy-src') || $(el).attr('data-srcset');
+    if (dataSrc) {
+      const absDataSrc = resolveUrl(dataSrc);
+      $(el).attr('data-src', absDataSrc);
+      if (!src || src.startsWith('data:image/gif') || src.startsWith('data:image/svg') || src.includes('placeholder')) {
+        $(el).attr('src', absDataSrc);
+      }
+    }
 
     const srcset = $(el).attr('srcset');
     if (srcset) {
@@ -151,7 +193,7 @@ async function cloneWithCheerio(
     }
   });
 
-  // 2. IA Assistente: Substituição inteligente de Checkout próprio
+  // 3. IA Assistente: Substituição inteligente de Checkout próprio
   const checkoutKeywords = /checkout|pay|kiwify|hotmart|monetizze|eduzz|braip|perfectpay|cakto|kirvano|pepper|cart|comprar|adquirir|pagar|assinar|matricul|inscric|inscreva|garantir|vendas/i;
   
   $('a').each((_, el) => {
@@ -329,10 +371,18 @@ async function cloneWithCheerio(
     };
   }
 
+  // Injeta todo o CSS consolidado dentro do <head> para garantir estilização mesmo offline ou com CDN instável
+  if (aggregatedCss && !$('style#roi-aggregated-css').length) {
+    if ($('head').length > 0) {
+      $('head').append(`<style id="roi-aggregated-css">\n${aggregatedCss}\n</style>`);
+    } else {
+      $('body').prepend(`<style id="roi-aggregated-css">\n${aggregatedCss}\n</style>`);
+    }
+  }
+
   const bodyElem = $('body').get(0);
   const domTree = bodyElem ? parseCheerioNode(bodyElem, 'body') : null;
-  const finalHtml = $.html();
-  const sanitizedHtml = sanitizeHtml(finalHtml);
+  const cleanFinalHtml = $.html();
 
   // 6. Cria o registro de Page no banco de dados
   const slug =
@@ -349,16 +399,16 @@ async function cloneWithCheerio(
       slug,
       userId: clone.userId,
       sourceUrl: clone.sourceUrl,
-      html: sanitizedHtml,
+      html: cleanFinalHtml,
       css: aggregatedCss,
       js: '',
       status: 'DRAFT',
     },
   });
 
-  // Salva a hierarquia estrutural no banco
+  // Salva a hierarquia estrutural essencial no banco de dados de forma ágil
   async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
-    if (depth > 4) return;
+    if (depth > 2) return;
     try {
       const element = await prisma.pageElement.create({
         data: {
@@ -373,7 +423,7 @@ async function cloneWithCheerio(
         },
       });
 
-      for (let i = 0; i < Math.min((node.children || []).length, 30); i++) {
+      for (let i = 0; i < Math.min((node.children || []).length, 12); i++) {
         await saveNode(node.children[i], element.id, i, depth + 1);
       }
     } catch (e) {
@@ -411,7 +461,7 @@ async function cloneWithCheerio(
       status: 'COMPLETED',
       progress: 100,
       pageId: pageRecord.id,
-      resultHtml: sanitizedHtml,
+      resultHtml: cleanFinalHtml,
       resultCss: aggregatedCss,
       resultJs: domTree ? JSON.stringify(domTree) : '{}',
       completedAt: new Date(),
@@ -455,7 +505,7 @@ async function cloneWithPlaywright(
       }
     });
 
-    await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 45000 });
+    await page.goto(targetUrl, { waitUntil: 'load', timeout: 20000 });
 
     await prisma.clone.update({
       where: { id: cloneId },
@@ -589,7 +639,6 @@ async function cloneWithPlaywright(
     });
 
     const finalHtml = await page.content();
-    const sanitizedHtml = sanitizeHtml(finalHtml);
 
     const slug =
       (clone.name || 'projeto')
@@ -605,7 +654,7 @@ async function cloneWithPlaywright(
         slug,
         userId: clone.userId,
         sourceUrl: clone.sourceUrl,
-        html: sanitizedHtml,
+        html: finalHtml,
         css: cssRules,
         js: '',
         status: 'DRAFT',
@@ -613,7 +662,7 @@ async function cloneWithPlaywright(
     });
 
     async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
-      if (depth > 4) return;
+      if (depth > 2) return;
       try {
         const element = await prisma.pageElement.create({
           data: {
@@ -628,7 +677,7 @@ async function cloneWithPlaywright(
           },
         });
 
-        for (let i = 0; i < Math.min((node.children || []).length, 30); i++) {
+        for (let i = 0; i < Math.min((node.children || []).length, 12); i++) {
           await saveNode(node.children[i], element.id, i, depth + 1);
         }
       } catch (e) {
@@ -646,7 +695,7 @@ async function cloneWithPlaywright(
         status: 'COMPLETED',
         progress: 100,
         pageId: pageRecord.id,
-        resultHtml: sanitizedHtml,
+        resultHtml: finalHtml,
         resultCss: cssRules,
         resultJs: JSON.stringify(domTree),
         completedAt: new Date(),

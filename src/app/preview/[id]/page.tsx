@@ -18,6 +18,14 @@ export default async function PreviewPage(props: { params: Promise<{ id: string 
     } else {
       fullHtml = baseTag + fullHtml;
     }
+  // Injeta folha de estilos consolidada se não estiver incorporada
+  if (editorData.css && !fullHtml.includes('id="roi-aggregated-css"') && !fullHtml.includes('id="roi-preview-css"')) {
+    const cssTag = `<style id="roi-preview-css">\n${editorData.css}\n</style>`;
+    if (fullHtml.includes('</head>')) {
+      fullHtml = fullHtml.replace('</head>', `${cssTag}</head>`);
+    } else {
+      fullHtml = cssTag + fullHtml;
+    }
   }
 
   return (
@@ -26,7 +34,7 @@ export default async function PreviewPage(props: { params: Promise<{ id: string 
         srcDoc={fullHtml}
         title="Live Preview"
         className="w-full h-full border-0"
-        sandbox="allow-scripts allow-same-origin allow-popups"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
       />
     </div>
   );

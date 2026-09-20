@@ -53,6 +53,14 @@ export default async function PublishedPage(props: { params: Promise<{ slug: str
     } else {
       finalHtml = baseTag + finalHtml;
     }
+  // Injeta folha de estilos consolidada se não estiver incorporada
+  if (cssContent && !finalHtml.includes('id="roi-aggregated-css"') && !finalHtml.includes('id="roi-published-css"')) {
+    const cssTag = `<style id="roi-published-css">\n${cssContent}\n</style>`;
+    if (finalHtml.includes('</head>')) {
+      finalHtml = finalHtml.replace('</head>', `${cssTag}</head>`);
+    } else {
+      finalHtml = cssTag + finalHtml;
+    }
   }
 
   return (
@@ -61,7 +69,7 @@ export default async function PublishedPage(props: { params: Promise<{ slug: str
         srcDoc={finalHtml}
         title={page?.name || 'Página Publicada'}
         className="w-full min-h-screen border-0 block"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
       />
     </div>
   );

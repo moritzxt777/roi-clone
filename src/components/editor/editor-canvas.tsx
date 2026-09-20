@@ -117,14 +117,26 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
       </script>
     `;
 
-    // Injeta a tag base para carregar todas as imagens e links externos do site original
+    // Injeta a tag base para carregar todas as imagens e links externos do site original se não existir
     let modifiedHtml = activeHtml;
     const baseTag = activeSource ? `<base href="${activeSource}" />` : '';
 
-    if (modifiedHtml.includes('<head>')) {
-      modifiedHtml = modifiedHtml.replace('<head>', `<head>${baseTag}`);
-    } else {
-      modifiedHtml = `<head>${baseTag}</head>` + modifiedHtml;
+    if (!modifiedHtml.includes('<base') && baseTag) {
+      if (modifiedHtml.includes('<head>')) {
+        modifiedHtml = modifiedHtml.replace('<head>', `<head>${baseTag}`);
+      } else {
+        modifiedHtml = `<head>${baseTag}</head>` + modifiedHtml;
+      }
+    }
+
+    // Injeta folha de estilo caso não esteja incorporada
+    if (css && !modifiedHtml.includes('id="roi-aggregated-css"') && !modifiedHtml.includes('id="roi-editor-css"')) {
+      const cssTag = `<style id="roi-editor-css">\n${css}\n</style>`;
+      if (modifiedHtml.includes('</head>')) {
+        modifiedHtml = modifiedHtml.replace('</head>', `${cssTag}</head>`);
+      } else {
+        modifiedHtml = cssTag + modifiedHtml;
+      }
     }
 
     if (modifiedHtml.includes('</body>')) {
@@ -134,7 +146,7 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
     }
 
     return modifiedHtml;
-  }, [activeHtml, activeSource]);
+  }, [activeHtml, activeSource, css]);
 
   // Atualiza o iframe imediatamente
   useEffect(() => {
@@ -170,7 +182,7 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
           srcDoc={srcDocContent}
           title="ROI Canvas Preview"
           className="w-full h-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-popups"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
         />
       </div>
     </main>
