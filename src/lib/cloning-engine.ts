@@ -1,8 +1,8 @@
-import { chromium, Page as PlaywrightPage } from 'playwright';
 import prisma from '@/lib/prisma';
 import { sanitizeHtml } from '@/lib/validations';
 import { validateUrl } from './security/url-validator';
-import crypto from 'crypto';
+import * as cheerio from 'cheerio';
+import axios from 'axios';
 
 interface ElementNode {
   id: string;
@@ -21,7 +21,7 @@ export async function clonePage(cloneId: string): Promise<void> {
     include: { user: true },
   });
 
-  if (!clone) throw new Error('Clone not found');
+  if (!clone) throw new Error('Clone não encontrado');
 
   try {
     await prisma.clone.update({
@@ -31,181 +31,494 @@ export async function clonePage(cloneId: string): Promise<void> {
 
     const targetUrl = await validateUrl(clone.sourceUrl);
 
-    const wsEndpoint = process.env.PLAYWRIGHT_WS_ENDPOINT ||
-      (process.env.BROWSERLESS_API_KEY ? `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_API_KEY}` : null);
+    const wsEndpoint =
+      process.env.PLAYWRIGHT_WS_ENDPOINT ||
+      (process.env.BROWSERLESS_API_KEY
+        ? `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_API_KEY}`
+        : null);
 
-    const browser = wsEndpoint
-      ? await chromium.connect(wsEndpoint)
-      : await chromium.launch({
-          headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-        });
+    const isVercel = !!process.env.VERCEL;
 
+    // Se estiver na Vercel e não tiver WebSocket remoto configurado, usa diretamente o motor HTTP Cheerio
+    if (isVercel && !wsEndpoint) {
+      console.log('[Cloner] Ambiente Vercel sem WS remoto detectado. Utilizando motor HTTP Cheerio de alta performance.');
+      await cloneWithCheerio(cloneId, clone, targetUrl);
+      return;
+    }
+
+    // Tenta clonagem com Playwright (se tiver WS ou se estiver em ambiente local/VPS com Chromium instalado)
     try {
-      const context = await browser.newContext({
-        viewport: { width: 1440, height: 900 },
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      await cloneWithPlaywright(cloneId, clone, targetUrl, wsEndpoint);
+    } catch (playwrightErr: any) {
+      console.warn('[Cloner] Falha ao iniciar Playwright:', playwrightErr?.message || playwrightErr);
+      console.log('[Cloner] Executando fallback automático para o motor HTTP Cheerio...');
+      await cloneWithCheerio(cloneId, clone, targetUrl);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+    await prisma.clone.update({
+      where: { id: cloneId },
+      data: { status: 'FAILED', error: errorMessage },
+    });
+    throw error;
+  }
+}
+
+/**
+ * Motor Cheerio: 100% Serverless, sem necessidade de Chromium binário.
+ * Baixa o HTML, reescreve links/mídias relativas para absolutas, junta CSS e gera a árvore de elementos.
+ */
+async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string): Promise<void> {
+  await prisma.clone.update({
+    where: { id: cloneId },
+    data: { status: 'FETCHING', progress: 30 },
+  });
+
+  const baseUrl = new URL(targetUrl);
+
+  const response = await axios.get(targetUrl, {
+    timeout: 25000,
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Sec-Ch-Ua': '"Chromium";v="124", "Not-A.Brand";v="99"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Upgrade-Insecure-Requests': '1',
+    },
+    maxRedirects: 5,
+    validateStatus: (status) => status < 400,
+  });
+
+  const rawHtml = response.data;
+  if (!rawHtml || typeof rawHtml !== 'string') {
+    throw new Error('Não foi possível obter o conteúdo HTML da página.');
+  }
+
+  await prisma.clone.update({
+    where: { id: cloneId },
+    data: { status: 'ANALYZING', progress: 50 },
+  });
+
+  const $ = cheerio.load(rawHtml);
+
+  // Função auxiliar para resolver URLs relativas para absolutas
+  function resolveUrl(relativeUrl: string | undefined): string {
+    if (!relativeUrl) return '';
+    try {
+      const trimmed = relativeUrl.trim();
+      if (trimmed.startsWith('data:') || trimmed.startsWith('blob:') || trimmed.startsWith('javascript:')) {
+        return trimmed;
+      }
+      return new URL(trimmed, baseUrl.href).href;
+    } catch {
+      return relativeUrl;
+    }
+  }
+
+  // 1. Converter URLs relativas em absolutas (imagens, links, mídia)
+  $('img').each((_, el) => {
+    const src = $(el).attr('src');
+    if (src) $(el).attr('src', resolveUrl(src));
+
+    const dataSrc = $(el).attr('data-src');
+    if (dataSrc) $(el).attr('data-src', resolveUrl(dataSrc));
+
+    const srcset = $(el).attr('srcset');
+    if (srcset) {
+      const parts = srcset
+        .split(',')
+        .map((p) => {
+          const [u, size] = p.trim().split(/\s+/);
+          return size ? `${resolveUrl(u)} ${size}` : resolveUrl(u);
+        })
+        .join(', ');
+      $(el).attr('srcset', parts);
+    }
+  });
+
+  $('a').each((_, el) => {
+    const href = $(el).attr('href');
+    if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !href.startsWith('tel:') && !href.startsWith('mailto:')) {
+      $(el).attr('href', resolveUrl(href));
+    }
+  });
+
+  $('video, audio, source').each((_, el) => {
+    const src = $(el).attr('src');
+    if (src) $(el).attr('src', resolveUrl(src));
+  });
+
+  // 2. Extrair CSS inline e folhas de estilo externas
+  let aggregatedCss = '';
+
+  $('style').each((_, el) => {
+    aggregatedCss += $(el).html() + '\n';
+  });
+
+  const stylesheetHrefs: string[] = [];
+  $('link[rel="stylesheet"]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (href) {
+      const absHref = resolveUrl(href);
+      $(el).attr('href', absHref);
+      stylesheetHrefs.push(absHref);
+    }
+  });
+
+  // Baixa os primeiros 8 arquivos CSS externos em paralelo com timeout reduzido
+  const cssFetches = stylesheetHrefs.slice(0, 8).map(async (href) => {
+    try {
+      const cssRes = await axios.get(href, {
+        timeout: 4000,
+        headers: { 'User-Agent': 'Mozilla/5.0' },
       });
-      const page = await context.newPage();
+      if (typeof cssRes.data === 'string') {
+        return `/* Stylesheet: ${href} */\n` + cssRes.data;
+      }
+    } catch {
+      return '';
+    }
+    return '';
+  });
 
-      // Block unnecessary heavy resources
-      await page.route('**/*', (route) => {
-        const type = route.request().resourceType();
-        if (['media', 'font'].includes(type)) {
-          route.abort();
-        } else {
-          route.continue();
-        }
+  const settledCss = await Promise.allSettled(cssFetches);
+  settledCss.forEach((res) => {
+    if (res.status === 'fulfilled' && res.value) {
+      aggregatedCss += '\n' + res.value;
+    }
+  });
+
+  await prisma.clone.update({
+    where: { id: cloneId },
+    data: { status: 'RECONSTRUCTING', progress: 75 },
+  });
+
+  // 3. Monta a árvore de ElementNodes compatível com o Editor Visual
+  function getElementType(tagName: string): string {
+    const t = tagName.toLowerCase();
+    if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label', 'b', 'strong', 'i', 'em', 'small'].includes(t))
+      return 'TEXT';
+    if (t === 'img') return 'IMAGE';
+    if (t === 'a') return 'LINK';
+    if (t === 'button') return 'BUTTON';
+    if (t === 'form') return 'FORM';
+    if (t === 'video') return 'VIDEO';
+    if (t === 'iframe') return 'IFRAME';
+    if (['div', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside'].includes(t)) return 'CONTAINER';
+    return 'CUSTOM';
+  }
+
+  function parseCheerioNode(elem: any, path: string): ElementNode | null {
+    if (!elem || elem.type !== 'tag') return null;
+    const tagName = elem.tagName.toLowerCase();
+    if (['script', 'style', 'noscript', 'meta', 'link'].includes(tagName)) return null;
+
+    const $elem = $(elem);
+    const id = 'el-' + Math.random().toString(36).substring(2, 9);
+    $elem.attr('data-editor-id', id);
+
+    const type = getElementType(tagName);
+    const attrs: Record<string, string> = { ...(elem.attribs || {}) };
+
+    const content: Record<string, any> = {};
+    if (type === 'TEXT' || type === 'BUTTON') {
+      content.text = $elem.text()?.trim();
+    }
+    if (type === 'IMAGE') {
+      content.src = $elem.attr('src') || '';
+      content.alt = $elem.attr('alt') || '';
+    }
+    if (type === 'LINK') {
+      content.href = $elem.attr('href') || '';
+    }
+    if (type === 'VIDEO') {
+      content.src = $elem.attr('src') || '';
+    }
+
+    const styles: Record<string, string> = {};
+    const styleAttr = $elem.attr('style');
+    if (styleAttr) {
+      styleAttr.split(';').forEach((rule) => {
+        const [prop, val] = rule.split(':');
+        if (prop && val) styles[prop.trim()] = val.trim();
       });
+    }
 
-      await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 60000 });
+    const children: ElementNode[] = [];
+    $elem.children().each((idx, child) => {
+      const parsedChild = parseCheerioNode(child, `${path}>${tagName}:nth-child(${idx + 1})`);
+      if (parsedChild) children.push(parsedChild);
+    });
 
-      await prisma.clone.update({
-        where: { id: cloneId },
-        data: { status: 'ANALYZING', progress: 50 },
-      });
+    return {
+      id,
+      type,
+      tagName,
+      selector: path,
+      content,
+      styles,
+      attrs,
+      children,
+    };
+  }
 
-      // Force scroll to load lazy images/components
-      await page.evaluate(async () => {
-        await new Promise<void>((resolve) => {
-          let totalHeight = 0;
-          const distance = 200;
-          const timer = setInterval(() => {
-            window.scrollBy(0, distance);
-            totalHeight += distance;
-            if (totalHeight >= document.body.scrollHeight || totalHeight > 10000) {
-              clearInterval(timer);
-              window.scrollTo(0, 0);
-              resolve();
-            }
-          }, 100);
-        });
-      });
+  const bodyElem = $('body').get(0);
+  const domTree = bodyElem ? parseCheerioNode(bodyElem, 'body') : null;
+  const finalHtml = $.html();
+  const sanitizedHtml = sanitizeHtml(finalHtml);
 
-      await page.waitForTimeout(2000); // Allow react states to settle
+  // 4. Cria o registro de Page no banco de dados
+  const slug =
+    (clone.name || 'projeto')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-') +
+    '-' +
+    Math.random().toString(36).substring(2, 6);
 
-      // Extract all stylesheets
-      const cssRules = await page.evaluate(() => {
-        return Array.from(document.styleSheets)
-          .map(sheet => {
-            try {
-              return Array.from(sheet.cssRules || []).map(rule => rule.cssText).join('\n');
-            } catch (e) {
-              // Handle cross-origin stylesheet access issues
-              if (sheet.href) return `/* External: ${sheet.href} */`;
-              return '';
-            }
-          })
-          .join('\n');
-      });
+  const pageRecord = await prisma.page.create({
+    data: {
+      name: clone.name || 'Projeto Clonado',
+      slug,
+      userId: clone.userId,
+      sourceUrl: clone.sourceUrl,
+      html: sanitizedHtml,
+      css: aggregatedCss,
+      js: '',
+      status: 'DRAFT',
+    },
+  });
 
-      await prisma.clone.update({
-        where: { id: cloneId },
-        data: { status: 'RECONSTRUCTING', progress: 70 },
-      });
-
-      // DOM Analyzer -> JSON Structure
-      const domTree = await page.evaluate(() => {
-        function getElementType(tagName: string, el: HTMLElement): string {
-          const t = tagName.toLowerCase();
-          if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label'].includes(t)) return 'TEXT';
-          if (t === 'img') return 'IMAGE';
-          if (t === 'a') return 'LINK';
-          if (t === 'button' || el.getAttribute('role') === 'button') return 'BUTTON';
-          if (t === 'form') return 'FORM';
-          if (t === 'video') return 'VIDEO';
-          if (t === 'iframe') return 'IFRAME';
-          if (['div', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside'].includes(t)) return 'CONTAINER';
-          return 'CUSTOM';
-        }
-
-        function extractNodeData(node: HTMLElement, path: string): ElementNode | null {
-          if (node.nodeType !== Node.ELEMENT_NODE) return null;
-          if (['script', 'style', 'noscript', 'meta', 'link'].includes(node.tagName.toLowerCase())) return null;
-
-          const tagName = node.tagName.toLowerCase();
-          const type = getElementType(tagName, node);
-          const computed = window.getComputedStyle(node);
-          
-          if (computed.display === 'none') return null;
-
-          const attrs: Record<string, string> = {};
-          Array.from(node.attributes).forEach(attr => {
-            attrs[attr.name] = attr.value;
-          });
-
-          const content: Record<string, any> = {};
-          if (type === 'TEXT' || type === 'BUTTON') content.text = node.innerText?.trim();
-          if (type === 'IMAGE') {
-            content.src = (node as HTMLImageElement).src;
-            content.alt = (node as HTMLImageElement).alt;
-          }
-          if (type === 'LINK') content.href = (node as HTMLAnchorElement).href;
-          if (type === 'VIDEO') content.src = (node as HTMLVideoElement).src;
-          
-          // Get specific structural styles
-          const styles: Record<string, string> = {
-            display: computed.display,
-            flexDirection: computed.flexDirection,
-            width: computed.width,
-            height: computed.height,
-            backgroundColor: computed.backgroundColor,
-            color: computed.color,
-            fontSize: computed.fontSize,
-            fontWeight: computed.fontWeight,
-            padding: computed.padding,
-            margin: computed.margin,
-          };
-
-          const id = 'el-' + Math.random().toString(36).substring(2, 9);
-          node.setAttribute('data-editor-id', id);
-
-          const children: ElementNode[] = [];
-          Array.from(node.childNodes).forEach((child, idx) => {
-            const childData = extractNodeData(child as HTMLElement, `${path}>${tagName}:nth-child(${idx + 1})`);
-            if (childData) children.push(childData);
-          });
-
-          return {
-            id,
-            type,
-            tagName,
-            selector: path,
-            content,
-            styles,
-            attrs,
-            children,
-          };
-        }
-
-        return extractNodeData(document.body, 'body');
-      });
-
-      // Get Final HTML with injected data-editor-id
-      const finalHtml = await page.content();
-      const sanitizedHtml = sanitizeHtml(finalHtml);
-
-      // Create Page record automatically
-      const slug = (clone.name || 'projeto')
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '-')
-        .replace(/-+/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
-
-      const pageRecord = await prisma.page.create({
+  // Salva a hierarquia estrutural no banco (limita a profundidade para evitar esgotamento de conexões)
+  async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
+    if (depth > 4) return;
+    try {
+      const element = await prisma.pageElement.create({
         data: {
-          name: clone.name || 'Projeto Clonado',
-          slug,
-          userId: clone.userId,
-          sourceUrl: clone.sourceUrl,
-          html: sanitizedHtml,
-          css: cssRules,
-          js: '',
-          status: 'DRAFT',
+          pageId: pageRecord.id,
+          selector: node.selector || node.tagName,
+          type: node.type as any,
+          content: node.content,
+          styles: node.styles,
+          attrs: { ...(node.attrs || {}), tagName: node.tagName },
+          position,
+          parentId,
         },
       });
 
-      // Save element tree
-      async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0) {
+      for (let i = 0; i < Math.min((node.children || []).length, 30); i++) {
+        await saveNode(node.children[i], element.id, i, depth + 1);
+      }
+    } catch (e) {
+      console.warn('[Cloner] Element node save notice:', e);
+    }
+  }
+
+  if (domTree) {
+    await saveNode(domTree);
+  }
+
+  // 5. Finaliza com status COMPLETED
+  await prisma.clone.update({
+    where: { id: cloneId },
+    data: {
+      status: 'COMPLETED',
+      progress: 100,
+      pageId: pageRecord.id,
+      resultHtml: sanitizedHtml,
+      resultCss: aggregatedCss,
+      resultJs: domTree ? JSON.stringify(domTree) : '{}',
+      completedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * Motor Playwright: Utilizado quando há Chromium local ou WebSocket Browserless configurado.
+ */
+async function cloneWithPlaywright(
+  cloneId: string,
+  clone: any,
+  targetUrl: string,
+  wsEndpoint: string | null
+): Promise<void> {
+  const { chromium } = await import('playwright');
+
+  const browser = wsEndpoint
+    ? await chromium.connect(wsEndpoint)
+    : await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
+
+  try {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    });
+    const page = await context.newPage();
+
+    await page.route('**/*', (route) => {
+      const type = route.request().resourceType();
+      if (['media', 'font'].includes(type)) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 45000 });
+
+    await prisma.clone.update({
+      where: { id: cloneId },
+      data: { status: 'ANALYZING', progress: 50 },
+    });
+
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        let totalHeight = 0;
+        const distance = 250;
+        const timer = setInterval(() => {
+          window.scrollBy(0, distance);
+          totalHeight += distance;
+          if (totalHeight >= document.body.scrollHeight || totalHeight > 10000) {
+            clearInterval(timer);
+            window.scrollTo(0, 0);
+            resolve();
+          }
+        }, 100);
+      });
+    });
+
+    await page.waitForTimeout(1500);
+
+    const cssRules = await page.evaluate(() => {
+      return Array.from(document.styleSheets)
+        .map((sheet) => {
+          try {
+            return Array.from(sheet.cssRules || [])
+              .map((rule) => rule.cssText)
+              .join('\n');
+          } catch (e) {
+            if (sheet.href) return `/* External: ${sheet.href} */`;
+            return '';
+          }
+        })
+        .join('\n');
+    });
+
+    await prisma.clone.update({
+      where: { id: cloneId },
+      data: { status: 'RECONSTRUCTING', progress: 70 },
+    });
+
+    const domTree = await page.evaluate(() => {
+      function getElementType(tagName: string, el: HTMLElement): string {
+        const t = tagName.toLowerCase();
+        if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label'].includes(t)) return 'TEXT';
+        if (t === 'img') return 'IMAGE';
+        if (t === 'a') return 'LINK';
+        if (t === 'button' || el.getAttribute('role') === 'button') return 'BUTTON';
+        if (t === 'form') return 'FORM';
+        if (t === 'video') return 'VIDEO';
+        if (t === 'iframe') return 'IFRAME';
+        if (['div', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside'].includes(t)) return 'CONTAINER';
+        return 'CUSTOM';
+      }
+
+      function extractNodeData(node: HTMLElement, path: string): ElementNode | null {
+        if (node.nodeType !== Node.ELEMENT_NODE) return null;
+        if (['script', 'style', 'noscript', 'meta', 'link'].includes(node.tagName.toLowerCase())) return null;
+
+        const tagName = node.tagName.toLowerCase();
+        const type = getElementType(tagName, node);
+        const computed = window.getComputedStyle(node);
+
+        if (computed.display === 'none') return null;
+
+        const attrs: Record<string, string> = {};
+        Array.from(node.attributes).forEach((attr) => {
+          attrs[attr.name] = attr.value;
+        });
+
+        const content: Record<string, any> = {};
+        if (type === 'TEXT' || type === 'BUTTON') content.text = node.innerText?.trim();
+        if (type === 'IMAGE') {
+          content.src = (node as HTMLImageElement).src;
+          content.alt = (node as HTMLImageElement).alt;
+        }
+        if (type === 'LINK') content.href = (node as HTMLAnchorElement).href;
+        if (type === 'VIDEO') content.src = (node as HTMLVideoElement).src;
+
+        const styles: Record<string, string> = {
+          display: computed.display,
+          flexDirection: computed.flexDirection,
+          width: computed.width,
+          height: computed.height,
+          backgroundColor: computed.backgroundColor,
+          color: computed.color,
+          fontSize: computed.fontSize,
+          fontWeight: computed.fontWeight,
+          padding: computed.padding,
+          margin: computed.margin,
+        };
+
+        const id = 'el-' + Math.random().toString(36).substring(2, 9);
+        node.setAttribute('data-editor-id', id);
+
+        const children: ElementNode[] = [];
+        Array.from(node.childNodes).forEach((child, idx) => {
+          const childData = extractNodeData(child as HTMLElement, `${path}>${tagName}:nth-child(${idx + 1})`);
+          if (childData) children.push(childData);
+        });
+
+        return {
+          id,
+          type,
+          tagName,
+          selector: path,
+          content,
+          styles,
+          attrs,
+          children,
+        };
+      }
+
+      return extractNodeData(document.body, 'body');
+    });
+
+    const finalHtml = await page.content();
+    const sanitizedHtml = sanitizeHtml(finalHtml);
+
+    const slug =
+      (clone.name || 'projeto')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-') +
+      '-' +
+      Math.random().toString(36).substring(2, 6);
+
+    const pageRecord = await prisma.page.create({
+      data: {
+        name: clone.name || 'Projeto Clonado',
+        slug,
+        userId: clone.userId,
+        sourceUrl: clone.sourceUrl,
+        html: sanitizedHtml,
+        css: cssRules,
+        js: '',
+        status: 'DRAFT',
+      },
+    });
+
+    async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
+      if (depth > 4) return;
+      try {
         const element = await prisma.pageElement.create({
           data: {
             pageId: pageRecord.id,
@@ -219,40 +532,35 @@ export async function clonePage(cloneId: string): Promise<void> {
           },
         });
 
-        for (let i = 0; i < (node.children || []).length; i++) {
-          await saveNode(node.children[i], element.id, i);
+        for (let i = 0; i < Math.min((node.children || []).length, 30); i++) {
+          await saveNode(node.children[i], element.id, i, depth + 1);
         }
+      } catch (e) {
+        console.warn('[Cloner] Element save warning:', e);
       }
-
-      if (domTree) {
-        await saveNode(domTree);
-      }
-
-      await prisma.clone.update({
-        where: { id: cloneId },
-        data: {
-          status: 'COMPLETED',
-          progress: 100,
-          pageId: pageRecord.id,
-          resultHtml: sanitizedHtml,
-          resultCss: cssRules,
-          resultJs: JSON.stringify(domTree),
-          completedAt: new Date(),
-        },
-      });
-
-      await browser.close();
-    } catch (err) {
-      await browser.close();
-      throw err;
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+
+    if (domTree) {
+      await saveNode(domTree);
+    }
+
     await prisma.clone.update({
       where: { id: cloneId },
-      data: { status: 'FAILED', error: errorMessage },
+      data: {
+        status: 'COMPLETED',
+        progress: 100,
+        pageId: pageRecord.id,
+        resultHtml: sanitizedHtml,
+        resultCss: cssRules,
+        resultJs: JSON.stringify(domTree),
+        completedAt: new Date(),
+      },
     });
-    throw error;
+
+    await browser.close();
+  } catch (err) {
+    await browser.close().catch(() => {});
+    throw err;
   }
 }
 
@@ -272,28 +580,32 @@ export async function generatePageFromClone(cloneId: string, pageId: string): Pr
     data: {
       html: clone.resultHtml || '',
       css: clone.resultCss || '',
-      js: '', 
+      js: '',
       status: 'DRAFT',
     },
   });
 
-  // Flat out the DOM tree to save as PageElements with Parent relations
-  async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0) {
-    const element = await prisma.pageElement.create({
-      data: {
-        pageId,
-        selector: node.selector || node.tagName,
-        type: node.type as any,
-        content: node.content,
-        styles: node.styles,
-        attrs: { ...(node.attrs || {}), tagName: node.tagName },
-        position,
-        parentId,
-      },
-    });
+  async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
+    if (depth > 4) return;
+    try {
+      const element = await prisma.pageElement.create({
+        data: {
+          pageId,
+          selector: node.selector || node.tagName,
+          type: node.type as any,
+          content: node.content,
+          styles: node.styles,
+          attrs: { ...(node.attrs || {}), tagName: node.tagName },
+          position,
+          parentId,
+        },
+      });
 
-    for (let i = 0; i < node.children.length; i++) {
-      await saveNode(node.children[i], element.id, i);
+      for (let i = 0; i < Math.min(node.children.length, 30); i++) {
+        await saveNode(node.children[i], element.id, i, depth + 1);
+      }
+    } catch (e) {
+      console.warn('[Cloner] Page generation element save notice:', e);
     }
   }
 
