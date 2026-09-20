@@ -44,6 +44,7 @@ interface EditorState {
   css: string;
   html: string;
   deviceMode: 'desktop' | 'mobile';
+  editorMode: 'edit' | 'interact';
   isSidebarOpen: boolean;
   selectedElement: SelectedElementData | null;
   activeModal: ModalType;
@@ -63,6 +64,7 @@ interface EditorState {
     html: string;
   }) => void;
   setDeviceMode: (mode: 'desktop' | 'mobile') => void;
+  setEditorMode: (mode: 'edit' | 'interact') => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleAiChat: () => void;
@@ -104,6 +106,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   css: '',
   html: '',
   deviceMode: 'desktop',
+  editorMode: 'edit',
   isSidebarOpen: true,
   selectedElement: null,
   activeModal: 'none',
@@ -119,10 +122,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     elements: data.elements,
     css: data.css,
     html: data.html,
+    editorMode: 'edit',
     saveStatus: 'saved',
   }),
 
   setDeviceMode: (deviceMode) => set({ deviceMode }),
+  setEditorMode: (editorMode) => set({ 
+    editorMode, 
+    selectedElement: editorMode === 'interact' ? null : get().selectedElement 
+  }),
   isAiChatOpen: false,
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   setSidebarOpen: (isSidebarOpen) => set({ isSidebarOpen }),

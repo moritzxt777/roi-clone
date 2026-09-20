@@ -14,6 +14,8 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
     css,
     sourceUrl,
     deviceMode,
+    editorMode,
+    setEditorMode,
     selectElement,
   } = useEditorStore();
 
@@ -45,6 +47,23 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
         (function() {
           let currentSelected = null;
           let currentHover = null;
+          let currentMode = '${editorMode}';
+
+          window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'ROI_SET_MODE') {
+              currentMode = event.data.mode;
+              if (currentMode !== 'edit') {
+                if (currentHover) {
+                  currentHover.removeAttribute('data-roi-hover');
+                  currentHover = null;
+                }
+                if (currentSelected) {
+                  currentSelected.removeAttribute('data-roi-selected');
+                  currentSelected = null;
+                }
+              }
+            }
+          });
 
           function getUniqueSelector(el) {
             if (el.id) return '#' + el.id;
@@ -63,6 +82,7 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
           }
 
           document.addEventListener('mouseover', function(e) {
+            if (currentMode !== 'edit') return;
             if (!e.target || e.target === document.body || e.target === document.documentElement) return;
             if (currentHover && currentHover !== e.target) {
               currentHover.removeAttribute('data-roi-hover');
@@ -72,12 +92,19 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
           }, true);
 
           document.addEventListener('mouseout', function(e) {
+            if (currentMode !== 'edit') return;
             if (e.target && e.target.removeAttribute) {
               e.target.removeAttribute('data-roi-hover');
             }
           }, true);
 
           document.addEventListener('click', function(e) {
+            if (currentMode !== 'edit') {
+              // Em modo navegação/interação, permite que cliques em botões, links,
+              // selects, formulários e modais funcionem 100% naturalmente!
+              return;
+            }
+
             const target = e.target;
             if (!target || target === document.body || target === document.documentElement) return;
 
@@ -155,6 +182,16 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
     }
   }, [srcDocContent]);
 
+  // Sincroniza o modo (edição vs navegação) com o iframe via postMessage
+  useEffect(() => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage({
+        type: 'ROI_SET_MODE',
+        mode: editorMode,
+      }, '*');
+    }
+  }, [editorMode]);
+
   // Escuta os cliques de seleção do iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -167,8 +204,34 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
     return () => window.removeEventListener('message', handleMessage);
   }, [selectElement]);
 
+  const handleIframeLoad = () => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage({
+        type: 'ROI_SET_MODE',
+        mode: editorMode,
+      }, '*');
+    }
+  };
+
   return (
     <main className="flex-1 h-full bg-[#07080b] flex items-center justify-center p-2 md:p-4 overflow-hidden relative select-none">
+      {/* Banner flutuante no topo quando em Modo Navegação */}
+      {editorMode === 'interact' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-emerald-950/90 border border-emerald-500/40 text-emerald-300 text-xs font-medium backdrop-blur-xl shadow-2xl flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span>Modo Navegação Ativo • Você pode clicar em botões, popups e testar o site</span>
+          <button
+            onClick={() => setEditorMode('edit')}
+            className="ml-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-white font-bold text-[11px] transition-colors"
+          >
+            Voltar para Edição
+          </button>
+        </div>
+      )}
+
       <div 
         className={`transition-all duration-300 relative shadow-2xl ${
           deviceMode === 'desktop' 
@@ -180,6 +243,7 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
           id="canvas-iframe"
           ref={iframeRef}
           srcDoc={srcDocContent}
+          onLoad={handleIframeLoad}
           title="ROI Canvas Preview"
           className="w-full h-full border-0"
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"

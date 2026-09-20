@@ -66,7 +66,7 @@ const toolCards: ToolCard[] = [
 ];
 
 export function EditorSidebar() {
-  const { isSidebarOpen, activeModal, setActiveModal, isAiChatOpen, toggleAiChat } = useEditorStore();
+  const { isSidebarOpen, activeModal, setActiveModal, isAiChatOpen, toggleAiChat, editorMode } = useEditorStore();
 
   if (!isSidebarOpen) return null;
 
@@ -123,9 +123,18 @@ export function EditorSidebar() {
       </div>
 
       {/* Dica no rodapé da barra */}
-      <div className="mt-auto pt-4 border-t border-white/5 text-[11px] text-neutral-500 flex items-center gap-1.5 px-1">
-        <Sparkles className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-        <span>Clique nos elementos da página para editar direto.</span>
+      <div className="mt-auto pt-4 border-t border-white/5 text-[11px] flex items-center gap-1.5 px-1">
+        {editorMode === 'edit' ? (
+          <>
+            <Sparkles className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="text-neutral-500">Clique nos elementos para editar direto.</span>
+          </>
+        ) : (
+          <>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+            <span className="text-emerald-400 font-medium">Modo Navegar: Teste botões e formulários.</span>
+          </>
+        )}
       </div>
     </aside>
   );

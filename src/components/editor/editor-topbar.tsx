@@ -14,7 +14,9 @@ import {
   Loader2,
   Rocket,
   ArrowLeft,
-  Sparkles
+  Sparkles,
+  Edit3,
+  MousePointerClick
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -24,6 +26,8 @@ export function EditorTopbar() {
     projectName,
     deviceMode,
     setDeviceMode,
+    editorMode,
+    setEditorMode,
     isSidebarOpen,
     toggleSidebar,
     isAiChatOpen,
@@ -126,8 +130,38 @@ export function EditorTopbar() {
         </button>
       </div>
 
-      {/* Centro: Viewport, Reload, Seletor de Página, External Link */}
-      <div className="flex items-center gap-2">
+      {/* Centro: Alternador Editar/Navegar, Viewport, Reload, Seletor de Página, External Link */}
+      <div className="flex items-center gap-2.5">
+        {/* Alternador de Modo: Editar vs Navegar / Testar */}
+        <div className="flex items-center rounded-xl border border-white/10 bg-[#12141c] p-0.5 shadow-inner">
+          <button
+            onClick={() => setEditorMode('edit')}
+            title="Modo Edição: Clique nos elementos da página para editar textos, imagens e links"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              editorMode === 'edit' 
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25' 
+                : 'text-neutral-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>Editar</span>
+          </button>
+          <button
+            onClick={() => setEditorMode('interact')}
+            title="Modo Navegação: Interaja livremente com a página, clique em botões, popups e formulários para testar"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              editorMode === 'interact' 
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/25' 
+                : 'text-neutral-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <MousePointerClick className="w-3.5 h-3.5" />
+            <span>Navegar</span>
+          </button>
+        </div>
+
+        <div className="h-4 w-[1px] bg-white/10 mx-0.5 hidden lg:block" />
+
         {/* Device Switcher */}
         <div className="flex items-center rounded-lg border border-white/10 bg-white/5 p-0.5">
           <button
