@@ -1,19 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Mail, ArrowRight, CheckCircle2, RotateCcw, Loader2 } from 'lucide-react';
 
 export default function RegisterForm() {
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [isDiscordLoading, setIsDiscordLoading] = useState(false);
   const [error, setError] = useState('');
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [isResending, setIsResending] = useState(false);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -29,6 +31,30 @@ export default function RegisterForm() {
     } catch {
       setError('Falha ao conectar com o Discord');
       setIsDiscordLoading(false);
+    }
+  };
+
+  const handleResendEmail = async () => {
+    if (!registeredEmail) return;
+    setIsResending(true);
+    setResendStatus('idle');
+
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: registeredEmail }),
+      });
+
+      if (res.ok) {
+        setResendStatus('success');
+      } else {
+        setResendStatus('error');
+      }
+    } catch {
+      setResendStatus('error');
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -68,29 +94,107 @@ export default function RegisterForm() {
         return;
       }
 
-      // Auto-login imediato na conta criada
-      try {
-        const signInResult = await signIn('credentials', {
-          email: formData.email,
-          password: formData.password,
-          redirect: false,
-        });
-
-        if (signInResult?.ok) {
-          window.location.href = '/dashboard';
-          return;
-        }
-      } catch {
-        // Fallback caso ocorra algum problema no auto-sign-in imediato
-      }
-
-      router.push('/login?registered=true');
+      // Conta criada: NÃO entra no dashboard ainda!
+      // Exibe tela para o usuário confirmar no e-mail
+      setRegisteredEmail(formData.email);
     } catch {
       setError('Erro ao criar conta');
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Se a conta foi criada, exibe a tela exigindo confirmação de e-mail
+  if (registeredEmail) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#0a0a0a] px-4 font-sans text-white">
+        <div className="w-full max-w-[420px] rounded-3xl border border-white/10 bg-[#0d0f18]/90 p-8 shadow-2xl backdrop-blur-xl text-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="mb-6 flex justify-center">
+            <img src="/roi-logo.png" alt="ROI Clone" className="h-10 w-auto rounded object-contain" />
+          </div>
+
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600/15 border border-blue-500/30 text-blue-400">
+            <Mail className="h-8 w-8" />
+          </div>
+
+          <div className="inline-block px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full mb-3">
+            <span className="text-[11px] font-mono font-bold text-blue-400 uppercase tracking-wider">
+              Confirmação Pendente
+            </span>
+          </div>
+
+          <h1 className="text-2xl font-bold tracking-tight text-white mb-2">
+            Verifique seu e-mail
+          </h1>
+
+          <p className="text-xs text-neutral-400 leading-relaxed mb-4">
+            Enviamos um e-mail de ativação para:
+          </p>
+
+          <div className="p-3 bg-white/5 border border-white/10 rounded-xl font-mono text-xs text-blue-400 font-semibold break-all mb-6">
+            {registeredEmail}
+          </div>
+
+          <p className="text-xs text-neutral-300 leading-relaxed mb-6">
+            Abra seu e-mail e clique no botão <strong className="text-white">"Confirmar E-mail e Entrar no Painel"</strong>. Ao clicar, sua conta será validada e você entrará <strong>diretamente no Dashboard</strong>!
+          </p>
+
+          {resendStatus === 'success' && (
+            <div className="mb-4 p-3 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex items-center justify-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>Novo link enviado! Verifique sua caixa de entrada e spam.</span>
+            </div>
+          )}
+
+          {resendStatus === 'error' && (
+            <div className="mb-4 p-3 text-xs text-red-400 bg-red-950/40 border border-red-500/30 rounded-xl">
+              Erro ao reenviar e-mail. Tente novamente em alguns instantes.
+            </div>
+          )}
+
+          <div className="space-y-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleResendEmail}
+              disabled={isResending}
+              className="w-full h-11 border border-white/10 bg-white/5 text-xs text-white hover:bg-white/10 rounded-xl flex items-center justify-center gap-2 transition-all"
+            >
+              {isResending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Reenviando link...</span>
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Não recebeu? Reenviar e-mail</span>
+                </>
+              )}
+            </Button>
+
+            <Link
+              href="/login"
+              className="w-full h-11 inline-flex items-center justify-center gap-2 rounded-xl bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-all"
+            >
+              <span>Ir para o Login</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="mt-6 text-center text-xs text-neutral-500">
+            Digitou o e-mail errado?{' '}
+            <button
+              onClick={() => setRegisteredEmail('')}
+              className="text-blue-400 hover:underline cursor-pointer"
+            >
+              Cadastrar com outro e-mail
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[#0a0a0a] px-4 font-sans text-white">
@@ -168,7 +272,7 @@ export default function RegisterForm() {
 
           <Button 
             type="submit" 
-            className="w-full h-11 mt-2 rounded-md bg-white text-black font-medium hover:bg-neutral-200 transition-colors" 
+            className="w-full h-11 mt-2 rounded-md bg-white text-black font-medium hover:bg-neutral-200 transition-colors cursor-pointer" 
             disabled={isLoading || isDiscordLoading}
           >
             {isLoading ? 'Criando...' : 'Criar Conta'}
@@ -190,7 +294,7 @@ export default function RegisterForm() {
           type="button"
           onClick={handleDiscordSignUp}
           disabled={isLoading || isDiscordLoading}
-          className="w-full h-11 rounded-md bg-[#5865F2] hover:bg-[#4752C4] text-white font-medium text-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
+          className="w-full h-11 rounded-md bg-[#5865F2] hover:bg-[#4752C4] text-white font-medium text-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] cursor-pointer"
         >
           {isDiscordLoading ? (
             'Conectando ao Discord...'

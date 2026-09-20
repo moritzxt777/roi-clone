@@ -66,6 +66,16 @@ export default function LoginForm({ callbackUrl }: LoginFormProps) {
       });
 
       if (result?.error) {
+        // Verifica se a conta está pendente de confirmação
+        try {
+          const checkRes = await fetch(`/api/auth/check-status?email=${encodeURIComponent(formData.email)}`);
+          const checkData = await checkRes.json();
+          if (checkData.exists && checkData.unverified) {
+            setError('⚠️ Conta pendente de validação: Acesse seu e-mail e clique no botão de confirmação para liberar seu acesso.');
+            return;
+          }
+        } catch {}
+
         setError('Email ou senha inválidos');
       } else {
         const isMaster = formData.email.toLowerCase() === 'moritzadmin777roi@gmail.com';

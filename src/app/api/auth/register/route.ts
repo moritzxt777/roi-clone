@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
         name,
         email: email.toLowerCase(),
         passwordHash,
-        emailVerified: new Date(),
+        emailVerified: null,
       },
       select: {
         id: true,

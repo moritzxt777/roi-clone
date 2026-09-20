@@ -90,11 +90,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           throw new Error('Credenciais inválidas');
         }
 
-        if (!user.emailVerified) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { emailVerified: new Date() },
-          }).catch(() => {});
+        const isMaster = user.email.toLowerCase() === 'moritzadmin777roi@gmail.com';
+        if (!user.emailVerified && !isMaster) {
+          throw new Error('E-mail pendente de confirmação. Por favor, abra seu e-mail e clique no link de validação para liberar o acesso.');
         }
 
         return {
