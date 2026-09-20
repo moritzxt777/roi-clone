@@ -3,6 +3,18 @@ import { NextResponse } from 'next/server';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 export const proxy = auth((req) => {
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || req.nextUrl.host || '';
+  const cleanHost = host.split(':')[0].toLowerCase();
+
+  // Se acessar pelo subdomínio da Vercel (roi-clone.vercel.app), redireciona para o domínio próprio
+  if (cleanHost.includes('vercel.app')) {
+    const url = req.nextUrl.clone();
+    url.protocol = 'https';
+    url.host = 'www.roi-clone.site';
+    url.port = '';
+    return NextResponse.redirect(url, 308);
+  }
+
   const ip = getClientIp(req);
   const pathname = req.nextUrl.pathname;
   const isLoggedIn = !!req.auth;
@@ -96,8 +108,6 @@ export const proxy = auth((req) => {
   }
 
   // 5. Roteamento Inteligente de Subdomínios Wildcard para roi.app e roi-clone.site
-  const host = req.headers.get('host') || req.nextUrl.host || '';
-  const cleanHost = host.split(':')[0].toLowerCase();
   const matchedDomain = ['.roi.app', '.roi-clone.site'].find((d) => cleanHost.endsWith(d));
   if (matchedDomain) {
     const subdomain = cleanHost.replace(matchedDomain, '');
@@ -118,6 +128,9 @@ export const config = {
     '/moritzadmin171roi/:path*',
     '/admin-master/:path*',
     '/admin/:path*',
+    '/auth/:path*',
+    '/login',
+    '/register',
     '/api/:path*',
   ],
 };

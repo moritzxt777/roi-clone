@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
+import { getAppUrl } from '@/lib/url';
 
 interface SendWelcomeEmailProps {
   to: string;
@@ -50,7 +51,7 @@ function createTransporter() {
  * Gera o template HTML padrão ultra premium da ROI Clone com suporte a confirmação direta
  */
 export function generateWelcomeEmailHtml(name: string, email: string, confirmUrl?: string): string {
-  const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
+  const appUrl = getAppUrl();
   const targetUrl = confirmUrl || `${appUrl}/dashboard`;
 
   return `
@@ -326,7 +327,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailProps): Pr
 export async function sendWelcomeEmail({ to, name, confirmUrl, token }: SendWelcomeEmailProps) {
   let targetConfirmUrl = confirmUrl;
   if (!targetConfirmUrl && token) {
-    const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
+    const appUrl = getAppUrl();
     targetConfirmUrl = `${appUrl}/auth/verify?token=${token}`;
   }
 

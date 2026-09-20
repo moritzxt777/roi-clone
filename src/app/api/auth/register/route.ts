@@ -5,6 +5,7 @@ import { registerSchema } from '@/lib/validations';
 import { generateApiKey } from '@/lib/validations';
 import { sendWelcomeEmail } from '@/lib/mail';
 import { createVerificationToken } from '@/lib/tokens';
+import { getAppUrl } from '@/lib/url';
 import { headers } from 'next/headers';
 
 export async function POST(request: NextRequest) {
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
     // Enviar e-mail de boas-vindas com o template visual da ROI Clone e link direto
     let emailSent = false;
     let emailError: string | undefined;
-    const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
+    const appUrl = getAppUrl(request);
     const confirmUrl = autoLoginToken ? `${appUrl}/auth/verify?token=${autoLoginToken}` : `${appUrl}/dashboard`;
 
     try {

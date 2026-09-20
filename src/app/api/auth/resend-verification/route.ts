@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { createVerificationToken } from '@/lib/tokens';
 import { sendWelcomeEmail } from '@/lib/mail';
+import { getAppUrl } from '@/lib/url';
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     const token = await createVerificationToken(user.email);
-    const appUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.roi-clone.site');
+    const appUrl = getAppUrl(req);
     const confirmUrl = `${appUrl}/auth/verify?token=${token}`;
 
     const result = await sendWelcomeEmail({

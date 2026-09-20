@@ -17,23 +17,30 @@ function VerifyContent() {
   useEffect(() => {
     let isMounted = true;
 
+    // Redireciona imediatamente se estiver no domínio interno da Vercel
+    if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+      window.location.replace(`https://www.roi-clone.site/auth/verify${window.location.search}${window.location.hash}`);
+      return;
+    }
+
     async function handleAutoLogin() {
       // 1. Caso com token direto do ROI Clone
       if (token) {
         try {
           const res = await signIn('credentials', {
             token,
+            callbackUrl: '/dashboard',
             redirect: false,
           });
 
           if (!isMounted) return;
 
-          if (res?.ok) {
+          if (res?.ok && !res?.error) {
             setStatus('success');
-            // Redireciona imediatamente para o dashboard
+            // Redireciona imediatamente para o dashboard oficial
             setTimeout(() => {
-              window.location.href = '/dashboard';
-            }, 1200);
+              window.location.replace('/dashboard');
+            }, 800);
           } else {
             setStatus('error');
             setErrorMessage(
