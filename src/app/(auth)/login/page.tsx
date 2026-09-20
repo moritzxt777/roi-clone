@@ -1,5 +1,10 @@
+import { Suspense } from 'react';
 import LoginForm from './login-form';
 
 export default function LoginPage() {
-  return <LoginForm callbackUrl="/dashboard" />;
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#090b11]" />}>
+      <LoginForm callbackUrl="/dashboard" />
+    </Suspense>
+  );
 }

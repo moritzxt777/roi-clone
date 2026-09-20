@@ -1,5 +1,10 @@
+import { Suspense } from 'react';
 import RegisterForm from './register-form';
 
 export default function RegisterPage() {
-  return <RegisterForm />;
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0a0a0a]" />}>
+      <RegisterForm />
+    </Suspense>
+  );
 }

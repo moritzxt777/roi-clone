@@ -1,5 +1,6 @@
 import NextAuth from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
+import DiscordProvider from 'next-auth/providers/discord';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/prisma';
@@ -21,6 +22,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     error: '/login',
   },
   providers: [
+    DiscordProvider({
+      clientId: process.env.DISCORD_CLIENT_ID || '',
+      clientSecret: process.env.DISCORD_CLIENT_SECRET || '',
+      allowDangerousEmailAccountLinking: true,
+    }),
     CredentialsProvider({
       name: 'credentials',
       credentials: {
@@ -57,7 +63,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           name: user.name,
           role: user.role,
-          image: user.avatar,
+          image: user.image || user.avatar,
         };
       },
     }),
@@ -66,7 +72,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
-        token.role = user.role;
+        token.role = (user as any).role || 'USER';
       }
       if (trigger === 'update' && session) {
         token.name = session.name;
@@ -77,22 +83,38 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = token.id as string;
-        (session.user as any).role = token.role as string;
+        (session.user as any).role = (token.role as string) || 'USER';
       }
       return session;
     },
   },
   events: {
+    async createUser({ user }) {
+      if (user.id) {
+        try {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerified: new Date() },
+          });
+        } catch {
+          // ignore
+        }
+      }
+    },
     async signIn({ user }) {
       if (user?.id) {
-        await prisma.auditLog.create({
-          data: {
-            userId: user.id,
-            action: 'SIGN_IN',
-            entity: 'User',
-            entityId: user.id,
-          },
-        });
+        try {
+          await prisma.auditLog.create({
+            data: {
+              userId: user.id,
+              action: 'SIGN_IN',
+              entity: 'User',
+              entityId: user.id,
+            },
+          });
+        } catch {
+          // ignore
+        }
       }
     },
   },
