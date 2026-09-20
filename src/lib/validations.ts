@@ -30,6 +30,9 @@ export const pageSchema = z.object({
 export const cloneSchema = z.object({
   sourceUrl: z.string().url('URL inválida'),
   name: z.string().min(1, 'Nome é obrigatório').max(100),
+  newCheckoutUrl: z.string().url('URL de checkout inválida').optional().or(z.literal('')),
+  pixKey: z.string().optional().or(z.literal('')),
+  optimizeWithAi: z.boolean().optional(),
 });
 
 export const updatePageSchema = z.object({

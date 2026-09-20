@@ -15,7 +15,13 @@ interface ElementNode {
   children: ElementNode[];
 }
 
-export async function clonePage(cloneId: string): Promise<void> {
+export interface CloneOptions {
+  newCheckoutUrl?: string;
+  pixKey?: string;
+  optimizeWithAi?: boolean;
+}
+
+export async function clonePage(cloneId: string, options?: CloneOptions): Promise<void> {
   const clone = await prisma.clone.findUnique({
     where: { id: cloneId },
     include: { user: true },
@@ -42,17 +48,17 @@ export async function clonePage(cloneId: string): Promise<void> {
     // Se estiver na Vercel e não tiver WebSocket remoto configurado, usa diretamente o motor HTTP Cheerio
     if (isVercel && !wsEndpoint) {
       console.log('[Cloner] Ambiente Vercel sem WS remoto detectado. Utilizando motor HTTP Cheerio de alta performance.');
-      await cloneWithCheerio(cloneId, clone, targetUrl);
+      await cloneWithCheerio(cloneId, clone, targetUrl, options);
       return;
     }
 
     // Tenta clonagem com Playwright (se tiver WS ou se estiver em ambiente local/VPS com Chromium instalado)
     try {
-      await cloneWithPlaywright(cloneId, clone, targetUrl, wsEndpoint);
+      await cloneWithPlaywright(cloneId, clone, targetUrl, wsEndpoint, options);
     } catch (playwrightErr: any) {
       console.warn('[Cloner] Falha ao iniciar Playwright:', playwrightErr?.message || playwrightErr);
       console.log('[Cloner] Executando fallback automático para o motor HTTP Cheerio...');
-      await cloneWithCheerio(cloneId, clone, targetUrl);
+      await cloneWithCheerio(cloneId, clone, targetUrl, options);
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
@@ -68,7 +74,12 @@ export async function clonePage(cloneId: string): Promise<void> {
  * Motor Cheerio: 100% Serverless, sem necessidade de Chromium binário.
  * Baixa o HTML, reescreve links/mídias relativas para absolutas, junta CSS e gera a árvore de elementos.
  */
-async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string): Promise<void> {
+async function cloneWithCheerio(
+  cloneId: string,
+  clone: any,
+  targetUrl: string,
+  options?: CloneOptions
+): Promise<void> {
   await prisma.clone.update({
     where: { id: cloneId },
     data: { status: 'FETCHING', progress: 30 },
@@ -140,9 +151,20 @@ async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string):
     }
   });
 
+  // 2. IA Assistente: Substituição inteligente de Checkout próprio
+  const checkoutKeywords = /checkout|pay|kiwify|hotmart|monetizze|eduzz|braip|perfectpay|cakto|kirvano|pepper|cart|comprar|adquirir|pagar|assinar|matricul|inscric|inscreva|garantir|vendas/i;
+  
   $('a').each((_, el) => {
     const href = $(el).attr('href');
-    if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !href.startsWith('tel:') && !href.startsWith('mailto:')) {
+    const text = $(el).text() || '';
+    const classes = $(el).attr('class') || '';
+
+    // Se o usuário forneceu seu próprio link de checkout no assistente da IA
+    if (options?.newCheckoutUrl && (checkoutKeywords.test(href || '') || checkoutKeywords.test(text) || checkoutKeywords.test(classes))) {
+      $(el).attr('href', options.newCheckoutUrl);
+      $(el).attr('target', '_blank');
+      $(el).attr('data-roi-ai-checkout', 'replaced');
+    } else if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !href.startsWith('tel:') && !href.startsWith('mailto:')) {
       $(el).attr('href', resolveUrl(href));
     }
   });
@@ -152,7 +174,48 @@ async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string):
     if (src) $(el).attr('src', resolveUrl(src));
   });
 
-  // 2. Extrair CSS inline e folhas de estilo externas
+  // 3. IA Assistente: Injeção de Checkout PIX se configurado
+  if (options?.pixKey) {
+    const safePixKey = options.pixKey.replace(/[^a-zA-Z0-9@._-]/g, '');
+    const pixModalHtml = `
+    <div id="roi-pix-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);z-index:999999;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;">
+      <div style="background:#0d0e14;border:1px solid rgba(255,255,255,0.15);border-radius:24px;padding:32px;max-width:400px;width:90%;text-align:center;color:#fff;box-shadow:0 25px 50px -12px rgba(0,0,0,0.7);position:relative;">
+        <button onclick="document.getElementById('roi-pix-modal').style.display='none'" style="position:absolute;top:16px;right:16px;background:none;border:none;color:#888;font-size:18px;cursor:pointer;">✕</button>
+        <div style="width:48px;height:48px;border-radius:12px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#10b981;font-weight:bold;font-size:22px;">⚡</div>
+        <h3 style="margin:0 0 8px;font-size:18px;font-weight:bold;">Pagamento Instantâneo PIX</h3>
+        <p style="margin:0 0 16px;color:#aaa;font-size:12px;">Escaneie o QR Code ou copie a chave abaixo para liberação imediata:</p>
+        <div style="background:#fff;padding:12px;border-radius:16px;display:inline-block;margin-bottom:16px;">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(safePixKey)}" alt="QR Code Pix" style="display:block;width:180px;height:180px;" />
+        </div>
+        <div style="background:#151722;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;text-align:left;">
+          <span style="font-size:11px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px;">${safePixKey}</span>
+          <button onclick="navigator.clipboard.writeText('${safePixKey}');alert('Chave Pix copiada!')" style="background:#2563eb;color:#fff;border:none;padding:6px 12px;border-radius:8px;font-size:11px;font-weight:bold;cursor:pointer;margin-left:8px;">Copiar</button>
+        </div>
+        <p style="margin:0;color:#666;font-size:11px;">Acesso liberado instantaneamente após o pagamento</p>
+      </div>
+    </div>
+    <script>
+      (function(){
+        document.addEventListener('DOMContentLoaded', function() {
+          var btns = document.querySelectorAll('a, button');
+          btns.forEach(function(b) {
+            var txt = (b.innerText || '').toLowerCase();
+            if (txt.includes('comprar') || txt.includes('garantir') || txt.includes('quero') || txt.includes('adquirir') || txt.includes('pagar') || txt.includes('pix')) {
+              b.addEventListener('click', function(e) {
+                e.preventDefault();
+                var m = document.getElementById('roi-pix-modal');
+                if (m) m.style.display = 'flex';
+              });
+            }
+          });
+        });
+      })();
+    </script>
+    `;
+    $('body').append(pixModalHtml);
+  }
+
+  // 4. Extrair CSS inline e folhas de estilo externas
   let aggregatedCss = '';
 
   $('style').each((_, el) => {
@@ -169,7 +232,7 @@ async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string):
     }
   });
 
-  // Baixa os primeiros 8 arquivos CSS externos em paralelo com timeout reduzido
+  // Baixa os primeiros 8 arquivos CSS externos em paralelo
   const cssFetches = stylesheetHrefs.slice(0, 8).map(async (href) => {
     try {
       const cssRes = await axios.get(href, {
@@ -197,7 +260,7 @@ async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string):
     data: { status: 'RECONSTRUCTING', progress: 75 },
   });
 
-  // 3. Monta a árvore de ElementNodes compatível com o Editor Visual
+  // 5. Monta a árvore de ElementNodes compatível com o Editor Visual
   function getElementType(tagName: string): string {
     const t = tagName.toLowerCase();
     if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label', 'b', 'strong', 'i', 'em', 'small'].includes(t))
@@ -271,7 +334,7 @@ async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string):
   const finalHtml = $.html();
   const sanitizedHtml = sanitizeHtml(finalHtml);
 
-  // 4. Cria o registro de Page no banco de dados
+  // 6. Cria o registro de Page no banco de dados
   const slug =
     (clone.name || 'projeto')
       .toLowerCase()
@@ -293,7 +356,7 @@ async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string):
     },
   });
 
-  // Salva a hierarquia estrutural no banco (limita a profundidade para evitar esgotamento de conexões)
+  // Salva a hierarquia estrutural no banco
   async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
     if (depth > 4) return;
     try {
@@ -322,7 +385,26 @@ async function cloneWithCheerio(cloneId: string, clone: any, targetUrl: string):
     await saveNode(domTree);
   }
 
-  // 5. Finaliza com status COMPLETED
+  // 7. IA Assistente: Gerar sugestão inicial automática de alta conversão
+  try {
+    const detectedH1 = $('h1').first().text()?.trim();
+    if (detectedH1 && detectedH1.length > 5) {
+      await prisma.aISuggestion.create({
+        data: {
+          pageId: pageRecord.id,
+          userId: clone.userId,
+          type: 'HEADLINE',
+          original: detectedH1,
+          suggested: `[ROI IA] ${detectedH1} — Método Validado com Garantia Total`,
+          context: { reason: 'Otimização automática gerada pela ROI IA para aumentar conversão da oferta' },
+        },
+      });
+    }
+  } catch (e) {
+    console.warn('[Cloner] Auto AI suggestion notice:', e);
+  }
+
+  // 8. Finaliza com status COMPLETED
   await prisma.clone.update({
     where: { id: cloneId },
     data: {
@@ -344,7 +426,8 @@ async function cloneWithPlaywright(
   cloneId: string,
   clone: any,
   targetUrl: string,
-  wsEndpoint: string | null
+  wsEndpoint: string | null,
+  options?: CloneOptions
 ): Promise<void> {
   const { chromium } = await import('playwright');
 
@@ -396,6 +479,19 @@ async function cloneWithPlaywright(
     });
 
     await page.waitForTimeout(1500);
+
+    // Se o usuário passou link de checkout para substituição automática
+    if (options?.newCheckoutUrl) {
+      await page.evaluate((newUrl) => {
+        const keywords = /checkout|pay|kiwify|hotmart|monetizze|eduzz|braip|perfectpay|cakto|cart|comprar|adquirir|pagar/i;
+        document.querySelectorAll('a').forEach((a) => {
+          if (keywords.test(a.href) || keywords.test(a.innerText || '')) {
+            a.href = newUrl;
+            a.target = '_blank';
+          }
+        });
+      }, options.newCheckoutUrl);
+    }
 
     const cssRules = await page.evaluate(() => {
       return Array.from(document.styleSheets)

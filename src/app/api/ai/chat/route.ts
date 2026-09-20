@@ -65,7 +65,8 @@ Nome do projeto atual: "${projectName || 'Landing Page Clonada'}".`,
 
       if (nvidiaRes.ok) {
         const data = await nvidiaRes.json();
-        aiResponseText = data.choices?.[0]?.message?.content || '';
+        const msg = data.choices?.[0]?.message;
+        aiResponseText = msg?.content || msg?.reasoning_content || '';
       }
     } catch (err) {
       console.error('NVIDIA call error:', err);

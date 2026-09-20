@@ -17,7 +17,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Clock,
-  ArrowRight
+  ArrowRight,
+  Bot,
+  Zap,
+  Wand2,
+  Check
 } from 'lucide-react';
 
 interface CloneItem {
@@ -44,6 +48,11 @@ export default function ClonesManagementPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [targetUrl, setTargetUrl] = useState('');
   const [projectName, setProjectName] = useState('');
+  const [newCheckoutUrl, setNewCheckoutUrl] = useState('');
+  const [pixKey, setPixKey] = useState('');
+  const [isAiEnabled, setIsAiEnabled] = useState(true);
+  const [isAnalyzingUrl, setIsAnalyzingUrl] = useState(false);
+  const [aiSuggestionMsg, setAiSuggestionMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -74,6 +83,35 @@ export default function ClonesManagementPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleAnalyzeWithAi = async () => {
+    if (!targetUrl.trim()) {
+      setErrorMsg('Cole a URL da página antes de analisar com a IA.');
+      return;
+    }
+    setIsAnalyzingUrl(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/ai/suggest-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: targetUrl.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.suggestedName) setProjectName(data.suggestedName);
+        setAiSuggestionMsg(`✨ Nicho detectado: ${data.productType || 'Vendas'} | Nome sugerido preenchido!`);
+        setTimeout(() => setAiSuggestionMsg(null), 6000);
+      } else {
+        setErrorMsg('Não foi possível analisar a URL automaticamente.');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Erro ao conectar com a ROI IA.');
+    } finally {
+      setIsAnalyzingUrl(false);
+    }
+  };
+
   const handleCreateClone = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetUrl.trim()) return;
@@ -93,7 +131,13 @@ export default function ClonesManagementPage() {
       const res = await fetch('/api/clones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceUrl: targetUrl, name: finalName }),
+        body: JSON.stringify({
+          sourceUrl: targetUrl,
+          name: finalName,
+          newCheckoutUrl: newCheckoutUrl.trim() || undefined,
+          pixKey: pixKey.trim() || undefined,
+          optimizeWithAi: isAiEnabled,
+        }),
       });
 
       if (!res.ok) {
@@ -105,6 +149,8 @@ export default function ClonesManagementPage() {
       setIsModalOpen(false);
       setTargetUrl('');
       setProjectName('');
+      setNewCheckoutUrl('');
+      setPixKey('');
       router.push(`/dashboard/clones/${clone.id}/progress`);
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -361,16 +407,21 @@ export default function ClonesManagementPage() {
 
       {/* Modal: Novo Projeto / Clonar */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0d0e14] p-6 shadow-2xl animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0d0e14] p-6 shadow-2xl animate-in zoom-in-95 duration-150 my-8">
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Criar Novo Clone</h3>
-                  <p className="text-[11px] text-neutral-400">Insira a URL para extrair a página</p>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                    Clonagem Inteligente
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                      ROI IA ATIVA
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-neutral-400">Extraia a página e adapte o checkout automaticamente</p>
                 </div>
               </div>
               <button
@@ -382,31 +433,122 @@ export default function ClonesManagementPage() {
             </div>
 
             <form onSubmit={handleCreateClone} className="mt-4 space-y-4">
+              {/* URL Alvo + Botão Sugerir IA */}
+              <div>
+                <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                  URL da Página Alvo *
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://exemplo.com/pagina-de-vendas"
+                    value={targetUrl}
+                    onChange={(e) => setTargetUrl(e.target.value)}
+                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-[#151722] border border-white/10 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAnalyzeWithAi}
+                    disabled={isAnalyzingUrl || !targetUrl.trim()}
+                    className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-xs font-semibold transition-colors shrink-0 disabled:opacity-40"
+                    title="Analisar URL e sugerir nome e nicho com a ROI IA"
+                  >
+                    {isAnalyzingUrl ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Wand2 className="w-3.5 h-3.5" />
+                    )}
+                    <span className="hidden sm:inline">Preencher com IA</span>
+                  </button>
+                </div>
+                {aiSuggestionMsg && (
+                  <p className="text-[11px] text-emerald-400 mt-1.5 animate-in fade-in duration-200">
+                    {aiSuggestionMsg}
+                  </p>
+                )}
+              </div>
+
+              {/* Nome do Projeto */}
               <div>
                 <label className="text-xs font-medium text-neutral-300 block mb-1.5">
                   Nome do Projeto (Opcional)
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: Landing Page Curso XYZ"
+                  placeholder="Ex: Landing Page Curso Afiliado"
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#151722] border border-white/10 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-neutral-300 block mb-1.5">
-                  URL da Página Alvo *
-                </label>
-                <input
-                  type="url"
-                  required
-                  placeholder="https://exemplo.com/pagina-de-vendas"
-                  value={targetUrl}
-                  onChange={(e) => setTargetUrl(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#151722] border border-white/10 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500 font-mono"
-                />
+              {/* Seção da ROI IA: Adaptação de Checkout e Conversão */}
+              <div className="rounded-2xl border border-blue-500/25 bg-gradient-to-b from-blue-950/20 to-transparent p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Bot className="w-4 h-4 text-blue-400" />
+                    <span className="text-xs font-bold text-white">Assistente ROI IA na Clonagem</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isAiEnabled}
+                      onChange={(e) => setIsAiEnabled(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-8 h-4.5 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {isAiEnabled && (
+                  <div className="space-y-3 pt-2 border-t border-white/10">
+                    {/* Link de Checkout Próprio */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-medium text-neutral-300">
+                          Substituir Botões pelo Meu Checkout (Opcional)
+                        </label>
+                        <span className="text-[10px] text-blue-400 font-mono">Kiwify, Hotmart, etc.</span>
+                      </div>
+                      <input
+                        type="url"
+                        placeholder="https://pay.kiwify.com.br/meu-checkout"
+                        value={newCheckoutUrl}
+                        onChange={(e) => setNewCheckoutUrl(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-[#151722] border border-white/10 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500 font-mono"
+                      />
+                      <p className="text-[10px] text-neutral-400 mt-1">
+                        ⚡ A IA trocará todos os botões de compra da página diretamente para seu link.
+                      </p>
+                    </div>
+
+                    {/* Ou Chave Pix */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-medium text-neutral-300">
+                          Ou Chave PIX para Checkout Direto (Opcional)
+                        </label>
+                        <span className="text-[10px] text-emerald-400 font-mono">QR Code Instantâneo</span>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="meupix@email.com ou CPF / Telefone"
+                        value={pixKey}
+                        onChange={(e) => setPixKey(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-[#151722] border border-white/10 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500"
+                      />
+                      <p className="text-[10px] text-neutral-400 mt-1">
+                        💳 A IA injetará automaticamente um popup com QR Code e Copia-e-Cola nos botões.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/90 pt-1">
+                      <Check className="w-3.5 h-3.5 shrink-0" />
+                      <span>Otimização automática de headlines e gatilhos ativada</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {errorMsg && (
@@ -427,12 +569,12 @@ export default function ClonesManagementPage() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors disabled:opacity-50 shadow-lg shadow-blue-500/20"
                 >
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Iniciando...</span>
+                      <span>Clonando & Otimizando com IA...</span>
                     </>
                   ) : (
                     <>
