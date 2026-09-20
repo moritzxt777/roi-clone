@@ -12,6 +12,7 @@ import {
   Layers,
   FileText
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface AdminUser {
   id: string;
@@ -32,6 +33,18 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  const [roleDialog, setRoleDialog] = useState<{
+    isOpen: boolean;
+    userId: string | null;
+    userEmail: string;
+    newRole: string;
+  }>({
+    isOpen: false,
+    userId: null,
+    userEmail: '',
+    newRole: '',
+  });
+
   const fetchUsers = async () => {
     try {
       const res = await fetch(`/api/admin-master/users?q=${encodeURIComponent(search)}`);
@@ -50,29 +63,36 @@ export default function AdminUsersPage() {
     fetchUsers();
   }, [search]);
 
-  const handleRoleChange = async (userId: string, newRole: string) => {
-    if (!confirm(`Alterar permissão deste usuário para ${newRole}?`)) return;
-    setUpdatingId(userId);
+  const promptRoleChange = (userId: string, userEmail: string, newRole: string) => {
+    setRoleDialog({
+      isOpen: true,
+      userId,
+      userEmail,
+      newRole,
+    });
+  };
+
+  const handleConfirmRoleChange = async () => {
+    if (!roleDialog.userId || !roleDialog.newRole) return;
+    setUpdatingId(roleDialog.userId);
 
     try {
       const res = await fetch('/api/admin-master/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, role: newRole }),
+        body: JSON.stringify({ userId: roleDialog.userId, role: roleDialog.newRole }),
       });
 
       if (res.ok) {
         setUsers((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+          prev.map((u) => (u.id === roleDialog.userId ? { ...u, role: roleDialog.newRole } : u))
         );
-      } else {
-        const err = await res.json();
-        alert(err.error || 'Falha ao alterar papel');
       }
     } catch (e) {
       console.error(e);
     } finally {
       setUpdatingId(null);
+      setRoleDialog({ isOpen: false, userId: null, userEmail: '', newRole: '' });
     }
   };
 
@@ -178,7 +198,7 @@ export default function AdminUsersPage() {
                       ) : (
                         <select
                           value={u.role}
-                          onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                          onChange={(e) => promptRoleChange(u.id, u.email, e.target.value)}
                           className="bg-[#151722] border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-red-500 cursor-pointer"
                         >
                           <option value="USER">USER</option>
@@ -194,6 +214,20 @@ export default function AdminUsersPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de Confirmação de Papel */}
+      <ConfirmDialog
+        isOpen={roleDialog.isOpen}
+        onClose={() => setRoleDialog({ isOpen: false, userId: null, userEmail: '', newRole: '' })}
+        onConfirm={handleConfirmRoleChange}
+        isLoading={updatingId === roleDialog.userId}
+        title="Alterar Permissão de Acesso"
+        description={`Deseja realmente alterar o papel e permissões de acesso deste usuário para "${roleDialog.newRole}"?`}
+        itemName={roleDialog.userEmail}
+        confirmText="Confirmar Alteração"
+        cancelText="Cancelar"
+        variant="warning"
+      />
     </div>
   );
 }

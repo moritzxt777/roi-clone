@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 
 interface User {
@@ -47,6 +48,16 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
 
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    userId: string | null;
+    userEmail: string;
+  }>({
+    isOpen: false,
+    userId: null,
+    userEmail: '',
+  });
+
   const { data, isLoading } = useQuery({
     queryKey: ['admin-users', page, search, roleFilter],
     queryFn: () => fetchUsers(new URLSearchParams({
@@ -57,16 +68,24 @@ export default function AdminUsersPage() {
     })),
   });
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   const updateRoleMutation = useMutation({
     mutationFn: ({ id, role }: { id: string; role: string }) => updateUserRole(id, role),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
-    onError: (error: Error) => alert(error.message),
+    onSuccess: () => {
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+    },
+    onError: (error: Error) => setActionError(error.message),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteUser,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
-    onError: (error: Error) => alert(error.message),
+    onSuccess: () => {
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+    },
+    onError: (error: Error) => setActionError(error.message),
   });
 
   if (isLoading) return <div className="flex items-center justify-center h-64">Carregando...</div>;
@@ -153,7 +172,11 @@ export default function AdminUsersPage() {
                         size="sm"
                         className="text-destructive hover:text-destructive"
                         onClick={() => {
-                          if (confirm(`Excluir usuário ${user.email}?`)) deleteMutation.mutate(user.id);
+                          setDeleteDialog({
+                            isOpen: true,
+                            userId: user.id,
+                            userEmail: user.email,
+                          });
                         }}
                         disabled={deleteMutation.isPending}
                       >
@@ -191,6 +214,24 @@ export default function AdminUsersPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => setDeleteDialog({ isOpen: false, userId: null, userEmail: '' })}
+        onConfirm={async () => {
+          if (deleteDialog.userId) {
+            await deleteMutation.mutateAsync(deleteDialog.userId);
+            setDeleteDialog({ isOpen: false, userId: null, userEmail: '' });
+          }
+        }}
+        isLoading={deleteMutation.isPending}
+        title="Excluir Usuário"
+        description="Tem certeza que deseja excluir permanentemente este usuário e todas as suas páginas, domínios e clones associados?"
+        itemName={deleteDialog.userEmail}
+        confirmText="Excluir Usuário"
+        cancelText="Cancelar"
+        variant="danger"
+      />
     </div>
   );
 }

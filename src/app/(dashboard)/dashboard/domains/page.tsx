@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Server
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface DomainItem {
   id: string;
@@ -39,6 +40,19 @@ export default function DomainsPage() {
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Modal de exclusão personalizado
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    domainId: string | null;
+    domainName: string;
+    isDeleting: boolean;
+  }>({
+    isOpen: false,
+    domainId: null,
+    domainName: '',
+    isDeleting: false,
+  });
 
   const fetchDomains = async () => {
     try {
@@ -108,14 +122,26 @@ export default function DomainsPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Deseja realmente remover este domínio?')) return;
+  const promptDelete = (dom: DomainItem) => {
+    setDeleteDialog({
+      isOpen: true,
+      domainId: dom.id,
+      domainName: dom.name,
+      isDeleting: false,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteDialog.domainId) return;
+    setDeleteDialog((prev) => ({ ...prev, isDeleting: true }));
 
     try {
-      await fetch(`/api/domains/${id}`, { method: 'DELETE' });
-      setDomains(domains.filter(d => d.id !== id));
+      await fetch(`/api/domains/${deleteDialog.domainId}`, { method: 'DELETE' });
+      setDomains((prev) => prev.filter((d) => d.id !== deleteDialog.domainId));
+      setDeleteDialog({ isOpen: false, domainId: null, domainName: '', isDeleting: false });
     } catch (err) {
       console.error(err);
+      setDeleteDialog((prev) => ({ ...prev, isDeleting: false }));
     }
   };
 
@@ -230,7 +256,7 @@ export default function DomainsPage() {
                     </button>
 
                     <button
-                      onClick={() => handleDelete(dom.id)}
+                      onClick={() => promptDelete(dom)}
                       title="Excluir domínio"
                       className="p-2 rounded-xl bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 transition-colors"
                     >
@@ -297,6 +323,20 @@ export default function DomainsPage() {
           })
         )}
       </div>
+
+      {/* Modal de Confirmação de Exclusão Moderno */}
+      <ConfirmDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => !deleteDialog.isDeleting && setDeleteDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmDelete}
+        isLoading={deleteDialog.isDeleting}
+        title="Remover Domínio"
+        description="Tem certeza que deseja remover este domínio personalizado? Seus clones associados a ele deixarão de responder através desta URL."
+        itemName={deleteDialog.domainName}
+        confirmText="Remover Domínio"
+        cancelText="Cancelar"
+        variant="danger"
+      />
     </div>
   );
 }

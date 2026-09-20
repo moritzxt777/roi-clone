@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Clock
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface CloneItem {
   id: string;
@@ -41,6 +42,19 @@ export default function DashboardPage() {
   
   const [clones, setClones] = useState<CloneItem[]>([]);
   const [loadingClones, setLoadingClones] = useState(true);
+
+  // Modal de exclusão personalizado
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    cloneId: string | null;
+    cloneName: string;
+    isDeleting: boolean;
+  }>({
+    isOpen: false,
+    cloneId: null,
+    cloneName: '',
+    isDeleting: false,
+  });
 
   // Fetch real user clones from API
   useEffect(() => {
@@ -94,15 +108,29 @@ export default function DashboardPage() {
     }
   };
 
-  const handleDeleteClone = async (id: string, e: React.MouseEvent) => {
+  const promptDeleteClone = (clone: { id: string; name: string }, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Deseja realmente excluir este projeto?')) return;
+    setDeleteDialog({
+      isOpen: true,
+      cloneId: clone.id,
+      cloneName: clone.name,
+      isDeleting: false,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteDialog.cloneId) return;
+    setDeleteDialog((prev) => ({ ...prev, isDeleting: true }));
 
     try {
-      await fetch(`/api/clones/${id}`, { method: 'DELETE' });
-      setClones(clones.filter(c => c.id !== id));
+      const res = await fetch(`/api/clones/${deleteDialog.cloneId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setClones((prev) => prev.filter((c) => c.id !== deleteDialog.cloneId));
+      }
+      setDeleteDialog({ isOpen: false, cloneId: null, cloneName: '', isDeleting: false });
     } catch (err) {
       console.error(err);
+      setDeleteDialog((prev) => ({ ...prev, isDeleting: false }));
     }
   };
 
@@ -262,7 +290,7 @@ export default function DashboardPage() {
                       </Link>
 
                       <button
-                        onClick={(e) => handleDeleteClone(clone.id, e)}
+                        onClick={(e) => promptDeleteClone(clone, e)}
                         title="Excluir projeto"
                         className="p-2 rounded-xl bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 transition-colors"
                       >
@@ -276,6 +304,20 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Modal de Confirmação de Exclusão Moderno */}
+      <ConfirmDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => !deleteDialog.isDeleting && setDeleteDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmDelete}
+        isLoading={deleteDialog.isDeleting}
+        title="Excluir Projeto"
+        description="Tem certeza que deseja excluir este projeto? Esta ação é irreversível e todos os arquivos, páginas clonadas e métricas serão apagados permanentemente."
+        itemName={deleteDialog.cloneName}
+        confirmText="Excluir Projeto"
+        cancelText="Cancelar"
+        variant="danger"
+      />
     </div>
   );
 }
