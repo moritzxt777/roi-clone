@@ -73,7 +73,9 @@ export const proxy = auth((req) => {
     }
 
     const userEmail = req.auth?.user?.email?.toLowerCase();
-    if (userEmail !== 'moritzadmin777roi@gmail.com' || (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN')) {
+    const isAuthorizedAdmin = userEmail === 'moritzadmin777roi@gmail.com' || userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+
+    if (!isAuthorizedAdmin) {
       if (pathname.startsWith('/api/')) {
         return NextResponse.json({ error: 'Não encontrado' }, { status: 404 });
       }

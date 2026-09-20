@@ -75,6 +75,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id;
         token.role = (user as any).role || 'USER';
       }
+      if (token.email?.toLowerCase() === 'moritzadmin777roi@gmail.com') {
+        token.role = 'SUPER_ADMIN';
+      }
       if (trigger === 'update' && session) {
         token.name = session.name;
         token.image = session.image;
@@ -84,7 +87,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = token.id as string;
-        (session.user as any).role = (token.role as string) || 'USER';
+        const isMaster = session.user.email?.toLowerCase() === 'moritzadmin777roi@gmail.com';
+        (session.user as any).role = isMaster ? 'SUPER_ADMIN' : ((token.role as string) || 'USER');
       }
       return session;
     },

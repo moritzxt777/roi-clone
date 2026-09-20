@@ -15,7 +15,8 @@ import {
   Edit3,
   Calendar,
   CheckCircle2,
-  Clock
+  Clock,
+  ShieldAlert
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
@@ -149,6 +150,36 @@ export default function DashboardPage() {
       {/* Conteúdo Central */}
       <div className="relative z-10 max-w-6xl mx-auto px-6 pt-12 pb-24 space-y-10">
         
+        {/* Banner Exclusivo do Moritz Admin */}
+        {(session?.user?.email?.toLowerCase() === 'moritzadmin777roi@gmail.com' || (session?.user as any)?.role === 'SUPER_ADMIN' || (session?.user as any)?.role === 'ADMIN') && (
+          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-red-950/50 via-[#160c10] to-[#0d0e14] border border-red-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl shadow-red-950/25">
+            <div className="flex items-center gap-3.5">
+              <div className="p-2.5 rounded-xl bg-red-500/20 text-red-400 border border-red-500/30 shrink-0">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-bold text-white uppercase tracking-wide">
+                    Acesso Administrador Supremo Ativo
+                  </p>
+                  <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[9px] font-mono font-bold border border-red-500/30">
+                    MORITZ ADMIN
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-400 mt-0.5">
+                  Você está conectado com privilégios master. Acesse o painel restrito para gerenciar usuários, inspecionar clonagens globais e monitorar a infraestrutura.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/moritzadmin171roi"
+              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
+            >
+              Abrir Painel Admin <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        )}
+
         {/* Hero Section com Input de Clonagem */}
         <div className="text-center space-y-3 max-w-3xl mx-auto pt-6">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold shadow-sm">

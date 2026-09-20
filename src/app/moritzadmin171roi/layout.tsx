@@ -40,7 +40,8 @@ export default function MoritzAdminLayout({
     } else if (status === 'authenticated') {
       const email = session?.user?.email?.toLowerCase();
       const role = (session?.user as any)?.role;
-      if (email !== ADMIN_AUTHORIZED_EMAIL || (role !== 'ADMIN' && role !== 'SUPER_ADMIN')) {
+      const isAuthorized = email === ADMIN_AUTHORIZED_EMAIL || role === 'SUPER_ADMIN' || role === 'ADMIN';
+      if (!isAuthorized) {
         router.push('/dashboard');
       }
     }
@@ -59,8 +60,9 @@ export default function MoritzAdminLayout({
 
   const role = (session?.user as any)?.role;
   const email = session?.user?.email?.toLowerCase();
+  const isAuthorized = email === ADMIN_AUTHORIZED_EMAIL || role === 'SUPER_ADMIN' || role === 'ADMIN';
 
-  if (!session || email !== ADMIN_AUTHORIZED_EMAIL || (role !== 'ADMIN' && role !== 'SUPER_ADMIN')) {
+  if (!session || !isAuthorized) {
     return (
       <div className="min-h-screen bg-[#07080b] flex flex-col items-center justify-center p-6 text-center text-white">
         <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mb-4">

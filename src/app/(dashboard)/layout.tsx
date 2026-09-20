@@ -18,7 +18,8 @@ import {
   ArrowRight,
   ExternalLink,
   Sparkles,
-  Flame
+  Flame,
+  ShieldAlert
 } from 'lucide-react';
 
 const navigation = [
@@ -94,6 +95,22 @@ export default function DashboardLayout({
     return <main className="min-h-screen bg-[#07080b] text-white">{children}</main>;
   }
 
+  const userEmail = session?.user?.email?.toLowerCase();
+  const userRole = (session?.user as any)?.role;
+  const isSuperAdmin = userEmail === 'moritzadmin777roi@gmail.com' || userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+
+  const navItems = isSuperAdmin
+    ? [
+        navigation[0],
+        { name: 'Painel Admin', href: '/moritzadmin171roi', icon: ShieldAlert, badge: 'MASTER', isAdmin: true },
+        navigation[1],
+        navigation[2],
+        navigation[3],
+        navigation[4],
+        navigation[5],
+      ]
+    : navigation;
+
   const filteredQuickClones = quickClones.filter(
     (c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -137,8 +154,9 @@ export default function DashboardLayout({
             <Plus className="w-4 h-4 mr-1.5" /> Novo Projeto
           </Link>
           <nav className="space-y-1">
-            {navigation.map((item, idx) => {
+            {navItems.map((item, idx) => {
               const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+              const isAdmin = (item as any).isAdmin;
               return (
                 <Link
                   key={idx}
@@ -146,15 +164,24 @@ export default function DashboardLayout({
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
                     'flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                    isActive ? 'bg-white/10 text-white font-semibold' : 'text-neutral-400 hover:bg-white/5 hover:text-white'
+                    isAdmin
+                      ? 'bg-red-500/15 text-red-400 font-semibold border border-red-500/30'
+                      : isActive 
+                      ? 'bg-white/10 text-white font-semibold' 
+                      : 'text-neutral-400 hover:bg-white/5 hover:text-white'
                   )}
                 >
                   <div className="flex items-center gap-3">
-                    <item.icon className="w-4 h-4" />
+                    <item.icon className={cn('w-4 h-4', isAdmin ? 'text-red-400' : '')} />
                     <span>{item.name}</span>
                   </div>
                   {'badge' in item && item.badge && (
-                    <span className="text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                    <span className={cn(
+                      'text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider',
+                      isAdmin 
+                        ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
+                        : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                    )}>
                       {item.badge}
                     </span>
                   )}
@@ -193,8 +220,9 @@ export default function DashboardLayout({
         
         {/* Navigation List */}
         <nav className="space-y-1">
-          {navigation.map((item, index) => {
+          {navItems.map((item, index) => {
             const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+            const isAdmin = (item as any).isAdmin;
 
             return (
               <Link
@@ -202,17 +230,24 @@ export default function DashboardLayout({
                 href={item.href}
                 className={cn(
                   'flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-medium transition-all',
-                  isActive 
+                  isAdmin
+                    ? 'bg-red-500/15 text-red-400 font-semibold border border-red-500/30 hover:bg-red-500/20 shadow-sm shadow-red-500/10'
+                    : isActive 
                     ? 'bg-blue-600/10 text-blue-400 font-semibold border border-blue-500/20' 
                     : 'text-neutral-400 hover:bg-white/5 hover:text-white'
                 )}
               >
                 <div className="flex items-center gap-3">
-                  <item.icon className={cn('w-4 h-4', isActive ? 'text-blue-400' : 'text-neutral-500')} />
+                  <item.icon className={cn('w-4 h-4', isAdmin ? 'text-red-400' : isActive ? 'text-blue-400' : 'text-neutral-500')} />
                   <span>{item.name}</span>
                 </div>
                 {'badge' in item && item.badge && (
-                  <span className="text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                  <span className={cn(
+                    'text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider',
+                    isAdmin 
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
+                      : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                  )}>
                     {item.badge}
                   </span>
                 )}

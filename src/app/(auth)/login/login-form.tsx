@@ -68,7 +68,11 @@ export default function LoginForm({ callbackUrl }: LoginFormProps) {
       if (result?.error) {
         setError('Email ou senha inválidos');
       } else {
-        router.push(callbackUrl);
+        const isMaster = formData.email.toLowerCase() === 'moritzadmin777roi@gmail.com';
+        const targetUrl = (callbackUrl && callbackUrl !== '/dashboard') 
+          ? callbackUrl 
+          : (isMaster ? '/moritzadmin171roi' : '/dashboard');
+        router.push(targetUrl);
         router.refresh();
       }
     } catch {

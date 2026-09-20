@@ -10,7 +10,9 @@ export async function GET(req: NextRequest) {
     const userRole = (session?.user as any)?.role;
     const userEmail = session?.user?.email?.toLowerCase();
 
-    if (!session?.user || userEmail !== ADMIN_AUTHORIZED_EMAIL || (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN')) {
+    const isAuthorized = userEmail === ADMIN_AUTHORIZED_EMAIL || userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+
+    if (!session?.user || !isAuthorized) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 404 });
     }
 
