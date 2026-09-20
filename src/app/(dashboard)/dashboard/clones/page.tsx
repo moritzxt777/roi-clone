@@ -21,7 +21,8 @@ import {
   Bot,
   Zap,
   Wand2,
-  Check
+  Check,
+  Archive,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
@@ -386,13 +387,24 @@ export default function ClonesManagementPage() {
                   <div className="mt-5 pt-3.5 border-t border-white/10 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       {isDone ? (
-                        <Link
-                          href={`/dashboard/projeto/${clone.id}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors shadow-sm"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>Editar Página</span>
-                        </Link>
+                        <>
+                          <Link
+                            href={`/dashboard/projeto/${clone.id}`}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors shadow-sm"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Editar</span>
+                          </Link>
+                          <a
+                            href={`/api/clones/${clone.id}/zip`}
+                            download
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 hover:text-white border border-blue-500/20 text-xs font-semibold transition-colors shadow-sm"
+                            title="Baixar Site Todo em ZIP (HTML, CSS e Subpáginas)"
+                          >
+                            <Archive className="w-3.5 h-3.5 text-blue-400" />
+                            <span>Baixar ZIP</span>
+                          </a>
+                        </>
                       ) : (
                         <Link
                           href={`/dashboard/clones/${clone.id}/progress`}

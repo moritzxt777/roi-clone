@@ -21,9 +21,11 @@ import {
   Plus,
   Layers,
   Zap,
+  Archive,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { downloadSiteZip } from '@/lib/zip-exporter';
 
 export function EditorTopbar() {
   const {
@@ -106,26 +108,32 @@ export function EditorTopbar() {
     }
   };
 
-  const handleDownload = () => {
-    const fullHtml = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${projectName}</title>
-  <style>${css}</style>
-</head>
-<body>
-  ${html}
-</body>
-</html>`;
-    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${projectName.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'pagina'}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+
+  const handleDownloadZip = async () => {
+    setDownloadingZip(true);
+    try {
+      const subpagesToExport = availablePages
+        .filter((p) => p.id !== (pageId || cloneId))
+        .map((p) => ({
+          name: p.name,
+          slug: p.slug,
+          html: '',
+          css: '',
+        }));
+
+      await downloadSiteZip({
+        projectName: currentPageTitle || projectName || 'oferta-clonada',
+        html,
+        css,
+        subpages: subpagesToExport,
+      });
+    } catch (e) {
+      console.error('Falha ao gerar ZIP no cliente, acionando servidor:', e);
+      window.open(`/api/clones/${cloneId || pageId}/zip`, '_blank');
+    } finally {
+      setDownloadingZip(false);
+    }
   };
 
   const handleReload = () => {
@@ -384,13 +392,24 @@ export function EditorTopbar() {
           <span>ROI IA</span>
         </button>
 
-        {/* Download HTML */}
+        {/* Baixar ZIP do Site Todo */}
         <button
-          onClick={handleDownload}
-          title="Baixar HTML da página"
-          className="p-2 rounded-lg border border-white/10 bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+          onClick={handleDownloadZip}
+          disabled={downloadingZip}
+          title="Baixar Site Todo em ZIP (HTML, CSS, Subpáginas, .htaccess)"
+          className="h-9 px-3 rounded-lg border border-blue-500/30 bg-blue-600/10 hover:bg-blue-600/20 text-blue-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-50"
         >
-          <Download className="w-4 h-4" />
+          {downloadingZip ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+              <span className="hidden sm:inline">Gerando ZIP...</span>
+            </>
+          ) : (
+            <>
+              <Archive className="w-3.5 h-3.5 text-blue-400" />
+              <span className="hidden sm:inline">Baixar ZIP</span>
+            </>
+          )}
         </button>
 
         {/* Save Button */}
