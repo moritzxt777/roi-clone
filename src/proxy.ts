@@ -80,11 +80,12 @@ export const proxy = auth((req) => {
     return NextResponse.redirect(new URL('/dashboard', req.nextUrl));
   }
 
-  // 5. Roteamento Inteligente de Subdomínios Wildcard para roi-clone.site
+  // 5. Roteamento Inteligente de Subdomínios Wildcard para roi.app e roi-clone.site
   const host = req.headers.get('host') || req.nextUrl.host || '';
   const cleanHost = host.split(':')[0].toLowerCase();
-  if (cleanHost.endsWith('.roi-clone.site')) {
-    const subdomain = cleanHost.replace('.roi-clone.site', '');
+  const matchedDomain = ['.roi.app', '.roi-clone.site'].find((d) => cleanHost.endsWith(d));
+  if (matchedDomain) {
+    const subdomain = cleanHost.replace(matchedDomain, '');
     if (subdomain && !['www', 'app', 'admin', 'api', 'dashboard'].includes(subdomain)) {
       if (pathname === '/' || pathname === '') {
         return NextResponse.rewrite(new URL(`/p/${subdomain}`, req.nextUrl));

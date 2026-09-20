@@ -10,7 +10,8 @@ import {
   ExternalLink, 
   ShieldCheck, 
   Loader2,
-  Sparkles
+  Sparkles,
+  Edit3
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -65,9 +66,9 @@ export function PublishModal() {
       const origin = window.location.origin;
 
       if (selectedDomainId === 'platform') {
-        // Formato oficial: a pessoa escolhe o começo e o final é .roi-clone.site
+        // Formato solicitado: subdomínio oficial com .roi.app
         const cleanSub = subdomain.trim() || 'oferta';
-        finalUrl = `https://${cleanSub}.roi-clone.site`;
+        finalUrl = `https://${cleanSub}.roi.app`;
         localUrl = `${origin}/p/${cleanSub}`;
       } else if (selectedCustomDomain) {
         // Domínio Próprio: sem o slug no final, exatamente na raiz do domínio!
@@ -151,10 +152,14 @@ export function PublishModal() {
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
               <button
-                onClick={() => setActiveModal('none')}
-                className="px-5 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 text-neutral-400 hover:text-white text-xs transition-colors"
+                onClick={() => {
+                  setPublishedUrl(null);
+                  setActiveModal('none');
+                }}
+                className="px-5 py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 shadow-sm"
               >
-                Voltar ao Editor
+                <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                <span>Continuar Editando</span>
               </button>
             </div>
           </div>
@@ -171,7 +176,7 @@ export function PublishModal() {
                 onChange={(e) => setSelectedDomainId(e.target.value)}
                 className="w-full bg-[#151722] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer font-medium"
               >
-                <option value="platform">🌐 Subdomínio Gratuito (escolha o nome + .roi-clone.site)</option>
+                <option value="platform">🌐 Subdomínio Gratuito (escolha o nome + .roi.app)</option>
                 {domains.map((d) => (
                   <option key={d.id} value={d.id}>
                     🔒 Meu Domínio Próprio: https://{d.name}/ (Na raiz, sem barra no final)
@@ -189,7 +194,7 @@ export function PublishModal() {
               )}
             </div>
 
-            {/* Se for Subdomínio da plataforma: A pessoa escolhe o começo e o final é .roi-clone.site */}
+            {/* Se for Subdomínio da plataforma: A pessoa escolhe o começo e o final é .roi.app */}
             {selectedDomainId === 'platform' ? (
               <div>
                 <label className="text-xs font-medium text-neutral-300 mb-1.5 block">
@@ -205,10 +210,10 @@ export function PublishModal() {
                     placeholder="meu-produto"
                     className="bg-transparent text-blue-400 font-bold focus:outline-none px-1 text-center min-w-[120px] flex-1"
                   />
-                  <span className="text-neutral-400 font-semibold select-none">.roi-clone.site</span>
+                  <span className="text-neutral-400 font-semibold select-none">.roi.app</span>
                 </div>
                 <p className="mt-1 text-[11px] text-neutral-500">
-                  Exemplo: <code>https://{subdomain || 'meu-produto'}.roi-clone.site</code>
+                  Exemplo: <code>https://{subdomain || 'meu-produto'}.roi.app</code>
                 </p>
               </div>
             ) : (
