@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 interface SendWelcomeEmailProps {
   to: string;
@@ -212,10 +213,34 @@ export function generateWelcomeEmailHtml(name: string, email: string): string {
  */
 export async function sendEmail({ to, subject, html, text }: SendEmailProps): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
+    // 1. Tenta envio direto via Resend API se RESEND_API_KEY estiver configurada
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (resendApiKey) {
+      const resend = new Resend(resendApiKey);
+      const fromAddress = process.env.EMAIL_FROM || 'ROI Clone <onboarding@resend.dev>';
+
+      const res = await resend.emails.send({
+        from: fromAddress,
+        to,
+        subject,
+        html,
+        text: text || 'Acesse o ROI Clone para visualizar este comunicado.',
+      });
+
+      if (res.error) {
+        console.error('[ROI Mail - Resend] Erro ao enviar:', res.error);
+        return { success: false, error: res.error.message };
+      }
+
+      console.log(`[ROI Mail - Resend] E-mail enviado com sucesso para ${to}. ID: ${res.data?.id}`);
+      return { success: true, messageId: res.data?.id };
+    }
+
+    // 2. Fallback para transporte SMTP (Nodemailer - suporta smtp.resend.com, Gmail, etc.)
     const transporter = createTransporter();
 
     if (!transporter) {
-      console.warn(`[ROI Mail] SMTP não configurado no .env. E-mail simulado para: ${to} | Assunto: ${subject}`);
+      console.warn(`[ROI Mail] Nem RESEND_API_KEY nem SMTP configurados no .env. E-mail simulado para: ${to} | Assunto: ${subject}`);
       return { success: true, messageId: 'simulated-local-dev' };
     }
 
@@ -229,7 +254,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailProps): Pr
       text: text || 'Acesse o ROI Clone para visualizar este comunicado.',
     });
 
-    console.log(`[ROI Mail] E-mail enviado com sucesso para ${to}. ID: ${info.messageId}`);
+    console.log(`[ROI Mail - SMTP] E-mail enviado com sucesso para ${to}. ID: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error: any) {
     console.error(`[ROI Mail] Erro ao enviar e-mail para ${to}:`, error.message);
