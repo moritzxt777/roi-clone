@@ -6,7 +6,7 @@ export default async function PreviewPage(props: { params: Promise<{ id: string 
   const params = await props.params;
   const session = await auth();
 
-  const editorData = await getEditorData(params.id, session?.user?.id || '');
+  const editorData = await getEditorData(params.id, session?.user?.id);
   if (!editorData) notFound();
 
   // Inject base href so all original images and styles resolve

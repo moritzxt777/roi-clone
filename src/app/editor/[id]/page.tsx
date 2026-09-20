@@ -9,7 +9,9 @@ export default async function EditorPage(props: { params: Promise<{ id: string }
   if (!session?.user) redirect('/login');
 
   const editorData = await getEditorData(params.id, session.user.id);
-  if (!editorData) notFound();
+  if (!editorData) {
+    redirect('/dashboard');
+  }
 
   return (
     <EditorClient 

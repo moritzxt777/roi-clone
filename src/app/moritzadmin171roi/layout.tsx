@@ -1,6 +1,6 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import Link from 'next/link';
@@ -142,15 +142,14 @@ export default function MoritzAdminLayout({
               </div>
             </div>
 
-            <form action="/api/auth/signout" method="POST">
-              <button
-                type="submit"
-                className="p-1.5 rounded-lg text-neutral-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                title="Sair da sessão"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              title="Sair da sessão"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
 

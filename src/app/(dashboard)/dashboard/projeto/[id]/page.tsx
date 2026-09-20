@@ -9,7 +9,9 @@ export default async function ProjetoEditorPage(props: { params: Promise<{ id: s
   if (!session?.user) redirect('/login');
 
   const editorData = await getEditorData(params.id, session.user.id);
-  if (!editorData) notFound();
+  if (!editorData) {
+    redirect('/dashboard');
+  }
 
   return (
     <EditorClient 
@@ -20,6 +22,9 @@ export default async function ProjetoEditorPage(props: { params: Promise<{ id: s
       projectName={editorData.projectName}
       css={editorData.css}
       html={editorData.html}
+      availablePages={editorData.availablePages}
+      discoveredSubpages={editorData.discoveredSubpages}
+      meta={editorData.meta}
     />
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -292,15 +292,14 @@ export default function DashboardLayout({
                 <p className="truncate text-[10px] text-neutral-500">{session.user?.email}</p>
               </div>
             </div>
-            <form action="/api/auth/signout" method="POST">
-              <button 
-                type="submit"
-                className="p-1.5 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-white/5 transition-colors text-xs"
-                title="Sair"
-              >
-                Sair
-              </button>
-            </form>
+            <button 
+              type="button"
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="p-1.5 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-white/5 transition-colors text-xs"
+              title="Sair"
+            >
+              Sair
+            </button>
           </div>
         </div>
       </aside>
