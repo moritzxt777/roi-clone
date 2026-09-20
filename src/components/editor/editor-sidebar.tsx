@@ -9,7 +9,8 @@ import {
   MousePointerClick,
   Sparkles,
   Undo2,
-  Flame
+  Flame,
+  Share2,
 } from 'lucide-react';
 
 interface ToolCard {
@@ -32,6 +33,13 @@ const toolCards: ToolCard[] = [
     title: 'Scripts e Pixel',
     icon: Code2,
     color: 'text-purple-400 group-hover:text-purple-300',
+  },
+  {
+    id: 'seo',
+    title: 'SEO & Preview',
+    icon: Share2,
+    color: 'text-pink-400 group-hover:text-pink-300',
+    badge: 'Zap',
   },
   {
     id: 'texts',

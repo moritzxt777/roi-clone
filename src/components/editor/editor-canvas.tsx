@@ -100,8 +100,20 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
 
           document.addEventListener('click', function(e) {
             if (currentMode !== 'edit') {
-              // Em modo navegação/interação, permite que cliques em botões, links,
-              // selects, formulários e modais funcionem 100% naturalmente!
+              // Em modo navegação/interação, permite navegação e avisa o editor caso seja um link interno / subpágina
+              try {
+                const a = e.target && e.target.closest ? e.target.closest('a') : (e.target && e.target.tagName === 'A' ? e.target : null);
+                if (a && a.href) {
+                  const href = a.href;
+                  if (!href.startsWith('javascript:') && !href.startsWith('#') && !href.startsWith('tel:') && !href.startsWith('mailto:')) {
+                    window.parent.postMessage({
+                      type: 'ROI_LINK_CLICKED_IN_INTERACT',
+                      url: href,
+                      text: a.innerText ? a.innerText.trim() : ''
+                    }, '*');
+                  }
+                }
+              } catch (err) {}
               return;
             }
 
@@ -192,17 +204,52 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
     }
   }, [editorMode]);
 
-  // Escuta os cliques de seleção do iframe
+  const [subpagePrompt, setSubpagePrompt] = useState<{ url: string; text: string } | null>(null);
+  const [cloningSubpage, setCloningSubpage] = useState(false);
+
+  // Escuta os cliques de seleção e navegação do iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'ROI_ELEMENT_SELECTED') {
         selectElement(event.data.data);
+      }
+      if (event.data && event.data.type === 'ROI_LINK_CLICKED_IN_INTERACT') {
+        const clickedUrl = event.data.url;
+        if (clickedUrl && !clickedUrl.includes('whatsapp') && !clickedUrl.includes('instagram') && !clickedUrl.includes('t.me')) {
+          setSubpagePrompt({
+            url: clickedUrl,
+            text: event.data.text || '',
+          });
+        }
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [selectElement]);
+
+  const handleOpenSubpageInEditor = async () => {
+    if (!subpagePrompt) return;
+    setCloningSubpage(true);
+    try {
+      const res = await fetch('/api/pages/subpage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: subpagePrompt.text ? `Página: ${subpagePrompt.text}` : 'Página 2',
+          url: subpagePrompt.url,
+        }),
+      });
+      const data = await res.json();
+      if (data.pageId) {
+        window.location.href = `/editor/${data.pageId}`;
+      }
+    } catch (err) {
+      console.error('Error switching to subpage:', err);
+    } finally {
+      setCloningSubpage(false);
+    }
+  };
 
   const handleIframeLoad = () => {
     if (iframeRef.current?.contentWindow) {
@@ -229,6 +276,35 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
           >
             Voltar para Edição
           </button>
+        </div>
+      )}
+
+      {/* Floating Prompt ao navegar para uma subpágina */}
+      {subpagePrompt && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 px-4 py-3 rounded-2xl bg-[#0e101a]/95 border border-blue-500/50 text-white text-xs backdrop-blur-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-3 max-w-xl">
+          <div className="flex-1 min-w-0">
+            <span className="text-[10px] uppercase font-bold text-blue-400 tracking-wider block">
+              Subpágina / Página 2 Detectada
+            </span>
+            <p className="truncate text-neutral-300 text-xs">
+              {subpagePrompt.text ? `"${subpagePrompt.text}" — ` : ''}{subpagePrompt.url}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setSubpagePrompt(null)}
+              className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-neutral-400 hover:text-white text-xs"
+            >
+              Dispensar
+            </button>
+            <button
+              disabled={cloningSubpage}
+              onClick={handleOpenSubpageInEditor}
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/25 transition-all"
+            >
+              {cloningSubpage ? 'Abrindo...' : 'Editar esta Página'}
+            </button>
+          </div>
         </div>
       )}
 

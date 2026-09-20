@@ -20,6 +20,9 @@ export default async function EditorPage(props: { params: Promise<{ id: string }
       projectName={editorData.projectName}
       css={editorData.css}
       html={editorData.html}
+      availablePages={editorData.availablePages}
+      discoveredSubpages={editorData.discoveredSubpages}
+      meta={editorData.meta}
     />
   );
 }

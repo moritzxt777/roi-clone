@@ -644,12 +644,148 @@ async function cloneWithCheerio(
     }
   });
 
+  // 12. Extração Avançada de Metadados, OpenGraph (WhatsApp/Redes Sociais), Favicons e Fontes
+  const extractedTitle = $('title').first().text()?.trim() || clone.name || 'Página Clonada';
+  const metaDescription =
+    $('meta[name="description"]').attr('content') ||
+    $('meta[property="og:description"]').attr('content') ||
+    '';
+  const ogTitle = $('meta[property="og:title"]').attr('content') || extractedTitle;
+  const ogDescription = $('meta[property="og:description"]').attr('content') || metaDescription;
+  
+  // Imagem OpenGraph (Crucial para card de pré-visualização no WhatsApp / Instagram)
+  let ogImageRaw =
+    $('meta[property="og:image"]').attr('content') ||
+    $('meta[name="twitter:image"]').attr('content') ||
+    $('meta[property="og:image:secure_url"]').attr('content') ||
+    '';
+  if (!ogImageRaw) {
+    // Fallback: primeira imagem relevante ou logo do site
+    const firstImg = $('img[src]').first().attr('src');
+    if (firstImg && !firstImg.includes('pixel') && !firstImg.includes('svg')) {
+      ogImageRaw = firstImg;
+    }
+  }
+  const ogImage = resolveUrl(ogImageRaw);
+  const ogUrl = $('meta[property="og:url"]').attr('content') || baseUrl.href;
+
+  // Favicon do Navegador
+  let faviconRaw =
+    $('link[rel="icon"]').attr('href') ||
+    $('link[rel="shortcut icon"]').attr('href') ||
+    $('link[rel="apple-touch-icon"]').attr('href') ||
+    '/favicon.ico';
+  const favicon = resolveUrl(faviconRaw);
+
+  // Canonical
+  const canonical = $('link[rel="canonical"]').attr('href') || baseUrl.href;
+
+  // Atualiza ou injeta as tags no <head> com URLs absolutas
+  if ($('head').length > 0) {
+    // Garante que o og:image esteja com URL absoluta para WhatsApp
+    if ($('meta[property="og:image"]').length > 0) {
+      $('meta[property="og:image"]').attr('content', ogImage);
+    } else if (ogImage) {
+      $('head').append(`<meta property="og:image" content="${ogImage}">`);
+    }
+
+    if ($('meta[property="og:title"]').length > 0) {
+      $('meta[property="og:title"]').attr('content', ogTitle);
+    } else {
+      $('head').append(`<meta property="og:title" content="${ogTitle}">`);
+    }
+
+    if ($('meta[property="og:description"]').length > 0) {
+      $('meta[property="og:description"]').attr('content', ogDescription);
+    } else if (ogDescription) {
+      $('head').append(`<meta property="og:description" content="${ogDescription}">`);
+    }
+
+    // Favicon com URL absoluta
+    if ($('link[rel*="icon"]').length > 0) {
+      $('link[rel*="icon"]').attr('href', favicon);
+    } else if (favicon) {
+      $('head').append(`<link rel="icon" href="${favicon}">`);
+    }
+
+    // Preservar Google Fonts Preconnect
+    if (!$('link[href*="fonts.googleapis.com"]').length) {
+      $('head').prepend(`
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      `);
+    }
+  }
+
+  // 13. Auto-Descoberta de Subpáginas do Funil (Página 2, Checkout, Upsell, Obrigado)
+  const subpagesMap = new Map<string, { title: string; url: string; slug: string }>();
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href');
+    const text = $(el).text()?.trim() || '';
+    if (
+      href &&
+      !href.startsWith('#') &&
+      !href.startsWith('javascript:') &&
+      !href.startsWith('tel:') &&
+      !href.startsWith('mailto:')
+    ) {
+      try {
+        const full = new URL(href, baseUrl.href);
+        if (
+          full.origin === baseUrl.origin &&
+          full.pathname !== '/' &&
+          full.pathname !== baseUrl.pathname
+        ) {
+          const cleanPath = full.pathname.replace(/^\/|\/$/g, '');
+          if (cleanPath && !cleanPath.includes('.') && !subpagesMap.has(full.href)) {
+            let pageTitle = text || `Página /${cleanPath}`;
+            if (pageTitle.length > 40) pageTitle = `Página /${cleanPath}`;
+            subpagesMap.set(full.href, {
+              title: pageTitle,
+              url: full.href,
+              slug: cleanPath,
+            });
+          }
+        }
+      } catch {}
+    }
+  });
+  const discoveredSubpages = Array.from(subpagesMap.values()).slice(0, 15);
+
+  // 14. Auto-Descoberta de Pixels e Códigos de Rastreamento
+  const pageHtmlString = rawHtml;
+  const detectedPixels: Record<string, any> = {};
+  
+  const fbPixelMatch = pageHtmlString.match(/fbq\(['"]init['"],\s*['"]([0-9]{10,20})['"]\)/);
+  if (fbPixelMatch) detectedPixels.facebook = fbPixelMatch[1];
+
+  const gtmMatch = pageHtmlString.match(/(GTM-[A-Z0-9]{4,10}|G-[A-Z0-9]{6,12}|AW-[0-9]{6,12})/);
+  if (gtmMatch) detectedPixels.google = gtmMatch[1];
+
+  const tiktokMatch = pageHtmlString.match(/ttq\.load\(['"]([A-Z0-9]{10,25})['"]\)/);
+  if (tiktokMatch) detectedPixels.tiktok = tiktokMatch[1];
+
+  if (pageHtmlString.includes('utmify.com.br') || pageHtmlString.includes('utmify')) {
+    detectedPixels.utmify = true;
+  }
+
+  // 15. Preservar Vídeos, VSLs e Players Interativos
+  $('video').each((_, el) => {
+    const poster = $(el).attr('poster');
+    if (poster) $(el).attr('poster', resolveUrl(poster));
+  });
+
+  $('iframe').each((_, el) => {
+    const src = $(el).attr('src');
+    if (src) $(el).attr('src', resolveUrl(src));
+  });
+
   await prisma.clone.update({
     where: { id: cloneId },
     data: { status: 'RECONSTRUCTING', progress: 75 },
   });
 
-  // 12. Monta a árvore de ElementNodes compatível com o Editor Visual
+  // 16. Monta a árvore de ElementNodes compatível com o Editor Visual
   function getElementType(tagName: string): string {
     const t = tagName.toLowerCase();
     if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label', 'b', 'strong', 'i', 'em', 'small'].includes(t))
@@ -731,7 +867,7 @@ async function cloneWithCheerio(
   const domTree = bodyElem ? parseCheerioNode(bodyElem, 'body') : null;
   const cleanFinalHtml = $.html();
 
-  // 6. Cria o registro de Page no banco de dados
+  // 17. Cria o registro de Page no banco de dados com metadados enriquecidos
   const slug =
     (clone.name || 'projeto')
       .toLowerCase()
@@ -739,6 +875,21 @@ async function cloneWithCheerio(
       .replace(/-+/g, '-') +
     '-' +
     Math.random().toString(36).substring(2, 6);
+
+  const pageMeta = {
+    title: extractedTitle,
+    description: metaDescription,
+    og: {
+      title: ogTitle,
+      description: ogDescription,
+      image: ogImage,
+      url: ogUrl,
+    },
+    favicon,
+    canonical,
+    subpages: discoveredSubpages,
+    detectedPixels,
+  };
 
   const pageRecord = await prisma.page.create({
     data: {
@@ -749,6 +900,7 @@ async function cloneWithCheerio(
       html: cleanFinalHtml,
       css: aggregatedCss,
       js: '',
+      meta: pageMeta,
       status: 'DRAFT',
     },
   });
@@ -782,7 +934,7 @@ async function cloneWithCheerio(
     await saveNode(domTree);
   }
 
-  // 7. IA Assistente: Gerar sugestão inicial automática de alta conversão
+  // 18. IA Assistente: Gerar sugestão inicial automática de alta conversão
   try {
     const detectedH1 = $('h1').first().text()?.trim();
     if (detectedH1 && detectedH1.length > 5) {
@@ -801,7 +953,7 @@ async function cloneWithCheerio(
     console.warn('[Cloner] Auto AI suggestion notice:', e);
   }
 
-  // 8. Finaliza com status COMPLETED
+  // 19. Finaliza com status COMPLETED
   await prisma.clone.update({
     where: { id: cloneId },
     data: {
@@ -845,7 +997,7 @@ async function cloneWithPlaywright(
 
     await page.route('**/*', (route) => {
       const type = route.request().resourceType();
-      if (['media', 'font'].includes(type)) {
+      if (['media'].includes(type)) {
         route.abort();
       } else {
         route.continue();
@@ -987,6 +1139,18 @@ async function cloneWithPlaywright(
 
     const finalHtml = await page.content();
 
+    const playwrightMeta = await page.evaluate(() => {
+      const title = document.title || '';
+      const desc = document.querySelector('meta[name="description"]')?.getAttribute('content') || 
+                   document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
+      const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || title;
+      const ogDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content') || desc;
+      const ogImg = document.querySelector('meta[property="og:image"]')?.getAttribute('content') || 
+                    document.querySelector('meta[name="twitter:image"]')?.getAttribute('content') || '';
+      const fav = document.querySelector('link[rel*="icon"]')?.getAttribute('href') || '/favicon.ico';
+      return { title, description: desc, og: { title: ogTitle, description: ogDesc, image: ogImg }, favicon: fav };
+    });
+
     const slug =
       (clone.name || 'projeto')
         .toLowerCase()
@@ -1004,6 +1168,7 @@ async function cloneWithPlaywright(
         html: finalHtml,
         css: cssRules,
         js: '',
+        meta: playwrightMeta,
         status: 'DRAFT',
       },
     });

@@ -110,6 +110,23 @@ export async function getEditorData(id: string, userId: string) {
       } catch (e) {}
     }
 
+    // Fetch other user pages to enable instant multi-page funnel switching
+    const userPages = await prisma.page.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        sourceUrl: true,
+        meta: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 25,
+    });
+
+    const pageMeta = (page.meta as any) || {};
+    const discoveredSubpages = Array.isArray(pageMeta.subpages) ? pageMeta.subpages : [];
+
     return {
       pageId: page.id,
       cloneId: clone.id,
@@ -118,6 +135,15 @@ export async function getEditorData(id: string, userId: string) {
       initialElements: rootElements,
       css: page.css || clone.resultCss || '',
       html: page.html || clone.resultHtml || '',
+      availablePages: userPages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        sourceUrl: p.sourceUrl || '',
+        isCurrent: p.id === page.id,
+      })),
+      discoveredSubpages,
+      meta: pageMeta,
     };
   }
 
@@ -151,6 +177,22 @@ export async function getEditorData(id: string, userId: string) {
       }
     });
 
+    const userPages = await prisma.page.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        sourceUrl: true,
+        meta: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 25,
+    });
+
+    const pageMeta = (page.meta as any) || {};
+    const discoveredSubpages = Array.isArray(pageMeta.subpages) ? pageMeta.subpages : [];
+
     return {
       pageId: page.id,
       cloneId: page.id,
@@ -159,6 +201,15 @@ export async function getEditorData(id: string, userId: string) {
       initialElements: rootElements,
       css: page.css || '',
       html: page.html || '',
+      availablePages: userPages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        sourceUrl: p.sourceUrl || '',
+        isCurrent: p.id === page.id,
+      })),
+      discoveredSubpages,
+      meta: pageMeta,
     };
   }
 

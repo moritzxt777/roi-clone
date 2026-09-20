@@ -14,6 +14,7 @@ import { ButtonsModal } from './modals/buttons-modal';
 import { PublishModal } from './modals/publish-modal';
 import { BackRedirectModal } from './modals/back-redirect-modal';
 import { TimerModal } from './modals/timer-modal';
+import { SeoModal } from './modals/seo-modal';
 import { AiChatDrawer } from './ai-chat-drawer';
 
 interface EditorClientProps {
@@ -24,6 +25,19 @@ interface EditorClientProps {
   initialElements: EditorElement[];
   css?: string;
   html?: string;
+  availablePages?: Array<{
+    id: string;
+    name: string;
+    slug?: string;
+    sourceUrl?: string;
+    isCurrent?: boolean;
+  }>;
+  discoveredSubpages?: Array<{
+    title: string;
+    url: string;
+    slug: string;
+  }>;
+  meta?: Record<string, any>;
 }
 
 export function EditorClient({
@@ -34,6 +48,9 @@ export function EditorClient({
   initialElements,
   css = '',
   html = '',
+  availablePages = [],
+  discoveredSubpages = [],
+  meta = {},
 }: EditorClientProps) {
   const initialized = useRef(false);
 
@@ -47,6 +64,9 @@ export function EditorClient({
       elements: initialElements,
       css,
       html,
+      availablePages,
+      discoveredSubpages,
+      meta,
       saveStatus: 'saved',
     });
     initialized.current = true;
@@ -63,9 +83,12 @@ export function EditorClient({
         elements: initialElements,
         css,
         html,
+        availablePages,
+        discoveredSubpages,
+        meta,
       });
     }
-  }, [pageId, cloneId, projectName, sourceUrl, initialElements, css, html]);
+  }, [pageId, cloneId, projectName, sourceUrl, initialElements, css, html, availablePages, discoveredSubpages, meta]);
 
   return (
     <div className="flex h-screen w-full flex-col bg-[#07080b] text-white overflow-hidden selection:bg-blue-600/30 font-sans">
@@ -93,6 +116,7 @@ export function EditorClient({
       <PublishModal />
       <BackRedirectModal />
       <TimerModal />
+      <SeoModal />
       <AiChatDrawer />
     </div>
   );

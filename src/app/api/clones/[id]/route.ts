@@ -15,7 +15,7 @@ export async function GET(
     const resolvedParams = await Promise.resolve(context.params);
     const id = resolvedParams.id;
 
-    const clone = await prisma.clone.findFirst({
+    let clone = await prisma.clone.findFirst({
       where: { 
         id: id,
         userId: session.user.id 
@@ -23,7 +23,22 @@ export async function GET(
     });
 
     if (!clone) {
-      return NextResponse.json({ error: 'Clone não encontrado' }, { status: 404 });
+      // Se não achar por clone.id, busca por page.id
+      const page = await prisma.page.findFirst({
+        where: { id: id, userId: session.user.id },
+      });
+      if (page) {
+        return NextResponse.json({
+          id: page.id,
+          name: page.name,
+          sourceUrl: page.sourceUrl || '',
+          resultHtml: page.html,
+          resultCss: page.css,
+          pageId: page.id,
+          status: 'COMPLETED',
+        });
+      }
+      return NextResponse.json({ error: 'Clone ou Página não encontrado' }, { status: 404 });
     }
 
     return NextResponse.json(clone);
@@ -55,7 +70,35 @@ export async function PATCH(
     });
 
     if (!existingClone) {
-      return NextResponse.json({ error: 'Clone não encontrado ou não autorizado' }, { status: 404 });
+      // Fallback para quando o usuário está editando diretamente uma Page (Página 2 / subpágina)
+      const existingPage = await prisma.page.findFirst({
+        where: { id: id, userId: session.user.id },
+      });
+
+      if (existingPage) {
+        const pageUpdates: any = {};
+        if (body.html !== undefined) pageUpdates.html = body.html;
+        if (body.css !== undefined) pageUpdates.css = body.css;
+        if (body.js !== undefined) pageUpdates.js = body.js;
+        if (body.slug !== undefined) pageUpdates.slug = body.slug;
+        if (body.domainId !== undefined) pageUpdates.domainId = body.domainId === 'platform' ? null : body.domainId;
+        if (body.meta !== undefined) pageUpdates.meta = body.meta;
+
+        const updatedPage = await prisma.page.update({
+          where: { id: existingPage.id },
+          data: pageUpdates,
+        });
+
+        return NextResponse.json({
+          id: updatedPage.id,
+          name: updatedPage.name,
+          resultHtml: updatedPage.html,
+          resultCss: updatedPage.css,
+          pageId: updatedPage.id,
+        });
+      }
+
+      return NextResponse.json({ error: 'Clone ou Página não encontrado' }, { status: 404 });
     }
 
     const clone = await prisma.clone.update({
@@ -73,6 +116,7 @@ export async function PATCH(
       if (body.css !== undefined) pageUpdates.css = body.css;
       if (body.slug !== undefined) pageUpdates.slug = body.slug;
       if (body.domainId !== undefined) pageUpdates.domainId = body.domainId === 'platform' ? null : body.domainId;
+      if (body.meta !== undefined) pageUpdates.meta = body.meta;
 
       await prisma.page.update({
         where: { id: clone.pageId },

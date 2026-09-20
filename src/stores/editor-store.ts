@@ -35,6 +35,20 @@ export interface SelectedElementData {
   selector?: string;
 }
 
+export interface AvailablePage {
+  id: string;
+  name: string;
+  slug?: string;
+  sourceUrl?: string;
+  isCurrent?: boolean;
+}
+
+export interface DiscoveredSubpage {
+  title: string;
+  url: string;
+  slug: string;
+}
+
 interface EditorState {
   pageId: string;
   cloneId: string;
@@ -43,6 +57,9 @@ interface EditorState {
   elements: EditorElement[];
   css: string;
   html: string;
+  availablePages: AvailablePage[];
+  discoveredSubpages: DiscoveredSubpage[];
+  meta?: Record<string, any>;
   deviceMode: 'desktop' | 'mobile';
   editorMode: 'edit' | 'interact';
   isSidebarOpen: boolean;
@@ -62,7 +79,11 @@ interface EditorState {
     elements: EditorElement[];
     css: string;
     html: string;
+    availablePages?: AvailablePage[];
+    discoveredSubpages?: DiscoveredSubpage[];
+    meta?: Record<string, any>;
   }) => void;
+  setAvailablePages: (pages: AvailablePage[]) => void;
   setDeviceMode: (mode: 'desktop' | 'mobile') => void;
   setEditorMode: (mode: 'edit' | 'interact') => void;
   toggleSidebar: () => void;
@@ -105,6 +126,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   elements: [],
   css: '',
   html: '',
+  availablePages: [],
+  discoveredSubpages: [],
+  meta: {},
   deviceMode: 'desktop',
   editorMode: 'edit',
   isSidebarOpen: true,
@@ -122,9 +146,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     elements: data.elements,
     css: data.css,
     html: data.html,
+    availablePages: data.availablePages || [],
+    discoveredSubpages: data.discoveredSubpages || [],
+    meta: data.meta || {},
     editorMode: 'edit',
     saveStatus: 'saved',
   }),
+
+  setAvailablePages: (availablePages) => set({ availablePages }),
 
   setDeviceMode: (deviceMode) => set({ deviceMode }),
   setEditorMode: (editorMode) => set({ 
