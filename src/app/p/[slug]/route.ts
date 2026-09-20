@@ -1,7 +1,10 @@
+import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { notFound } from 'next/navigation';
 
-export default async function PublishedPage(props: { params: Promise<{ slug: string }> }) {
+export async function GET(
+  req: NextRequest,
+  props: { params: Promise<{ slug: string }> }
+) {
   const params = await props.params;
   const slug = params.slug;
 
@@ -42,7 +45,15 @@ export default async function PublishedPage(props: { params: Promise<{ slug: str
     }
   }
 
-  if (!htmlContent) notFound();
+  if (!htmlContent) {
+    return new NextResponse(
+      '<!DOCTYPE html><html><head><title>Página não encontrada</title><meta charset="utf-8"></head><body style="background:#07080b;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;"><h2>404 - Página Não Encontrada</h2><p style="color:#888;">Esta página ainda não foi publicada ou foi removida.</p></div></body></html>',
+      {
+        status: 404,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      }
+    );
+  }
 
   // Injeta base tag se existir sourceUrl
   let finalHtml = htmlContent;
@@ -65,14 +76,11 @@ export default async function PublishedPage(props: { params: Promise<{ slug: str
     }
   }
 
-  return (
-    <div className="w-screen min-h-screen m-0 p-0 overflow-x-hidden bg-white">
-      <iframe
-        srcDoc={finalHtml}
-        title={page?.name || 'Página Publicada'}
-        className="w-full min-h-screen border-0 block"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
-      />
-    </div>
-  );
+  return new NextResponse(finalHtml, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=60, s-maxage=300',
+    },
+  });
 }

@@ -85,7 +85,7 @@ async function cloneWithCheerio(
     data: { status: 'FETCHING', progress: 30 },
   });
 
-  const baseUrl = new URL(targetUrl);
+  let baseUrl = new URL(targetUrl);
 
   const response = await axios.get(targetUrl, {
     timeout: 25000,
@@ -104,9 +104,44 @@ async function cloneWithCheerio(
     validateStatus: (status) => status < 400,
   });
 
-  const rawHtml = response.data;
+  let rawHtml = response.data;
   if (!rawHtml || typeof rawHtml !== 'string') {
     throw new Error('Não foi possível obter o conteúdo HTML da página.');
+  }
+
+  // 0. Detecção Inteligente de Domínio Raiz WordPress Vazio / Cloaker
+  // Se o site for um blog padrão vazio com "Hello world!" ou "Welcome to WordPress",
+  // busca na API /wp-json/wp/v2/pages se existe uma página de vendas real publicada
+  const isDefaultEmptyWp = (
+    rawHtml.includes('Welcome to WordPress. This is your first post') ||
+    (rawHtml.includes('Welcome to WordPress') && rawHtml.includes('Hello world!')) ||
+    (rawHtml.includes('wp-content') && rawHtml.includes('Hello world!') && rawHtml.length < 50000)
+  );
+
+  if (isDefaultEmptyWp && (baseUrl.pathname === '/' || baseUrl.pathname === '')) {
+    try {
+      const wpApiUrl = new URL('/wp-json/wp/v2/pages', baseUrl.origin).href;
+      const wpRes = await axios.get(wpApiUrl, { timeout: 8000, validateStatus: () => true });
+      if (Array.isArray(wpRes.data) && wpRes.data.length > 0) {
+        const priorityKeywords = /segura|principal|vendas|oferta|pv|vsl|app|cdd|lp|checkout|produto/i;
+        const bestPage = wpRes.data.find((p: any) => priorityKeywords.test(p.slug || '') || priorityKeywords.test(p.title?.rendered || '')) || wpRes.data[0];
+        if (bestPage?.link) {
+          console.log(`[Cloner] Detectado WordPress vazio na raiz. Redirecionando automaticamente para a página real da oferta: ${bestPage.link}`);
+          const realRes = await axios.get(bestPage.link, {
+            timeout: 25000,
+            headers: response.config.headers,
+            maxRedirects: 5,
+            validateStatus: (status) => status < 400,
+          });
+          if (realRes.data && typeof realRes.data === 'string') {
+            rawHtml = realRes.data;
+            baseUrl = new URL(bestPage.link);
+          }
+        }
+      }
+    } catch (wpErr) {
+      console.warn('[Cloner] Não foi possível buscar páginas via WP API:', wpErr);
+    }
   }
 
   await prisma.clone.update({
