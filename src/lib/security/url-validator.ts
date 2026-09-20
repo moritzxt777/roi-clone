@@ -16,10 +16,15 @@ export class SSRFError extends Error {
  * Blocks internal IP ranges, localhost, and metadata endpoints.
  */
 export async function validateUrl(targetUrl: string): Promise<string> {
-  let parsedUrl: URL;
+  let raw = (targetUrl || '').trim();
+  if (!raw) throw new SSRFError('URL vazia.');
+  if (!/^https?:\/\//i.test(raw)) {
+    raw = `https://${raw}`;
+  }
 
+  let parsedUrl: URL;
   try {
-    parsedUrl = new URL(targetUrl);
+    parsedUrl = new URL(raw);
   } catch (err) {
     throw new SSRFError('URL inválida.');
   }
@@ -29,7 +34,7 @@ export async function validateUrl(targetUrl: string): Promise<string> {
     throw new SSRFError('Apenas URLs com HTTP ou HTTPS são permitidas.');
   }
 
-  const hostname = parsedUrl.hostname;
+  const hostname = parsedUrl.hostname.toLowerCase();
 
   // Block obvious localhost/internal hostnames
   if (
@@ -44,15 +49,12 @@ export async function validateUrl(targetUrl: string): Promise<string> {
   }
 
   try {
-    // Resolve the hostname to an IP address to check against private ranges
-    const { address } = await lookup(hostname);
-
-    if (isPrivateIP(address)) {
+    const res = await lookup(hostname, { family: 4 }).catch(() => null);
+    if (res && res.address && isPrivateIP(res.address)) {
       throw new SSRFError('URLs que resolvem para redes privadas são bloqueadas.');
     }
   } catch (error: any) {
     if (error instanceof SSRFError) throw error;
-    throw new SSRFError('Não foi possível resolver o domínio fornecido.');
   }
 
   return parsedUrl.toString();

@@ -76,6 +76,16 @@ export async function GET(
     }
   }
 
+  // Injeta Escudo Anti-Tela Branca definitivo para assegurar visibilidade 100%
+  if (!finalHtml.includes('id="roi-anti-blank-shield"')) {
+    const shieldTag = `<style id="roi-anti-blank-shield">\n  html, body { opacity: 1 !important; visibility: visible !important; display: block !important; min-height: 100vh !important; }\n  #preloader, .preloader, #loading, .loading-screen, .elementor-loader, .elementor-loading, .page-loader, [class*="preloader"], [id*="preloader"], [class*="loader-wrapper"] { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }\n</style>`;
+    if (finalHtml.includes('</head>')) {
+      finalHtml = finalHtml.replace('</head>', `${shieldTag}</head>`);
+    } else {
+      finalHtml = shieldTag + finalHtml;
+    }
+  }
+
   return new NextResponse(finalHtml, {
     status: 200,
     headers: {

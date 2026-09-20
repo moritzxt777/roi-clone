@@ -71,8 +71,315 @@ export async function clonePage(cloneId: string, options?: CloneOptions): Promis
 }
 
 /**
- * Motor Cheerio: 100% Serverless, sem necessidade de Chromium binário.
- * Baixa o HTML, reescreve links/mídias relativas para absolutas, junta CSS e gera a árvore de elementos.
+ * 1. Fetch Multi-Tier de Alta Fidelidade (Anti-Bloqueio / Anti-Bot)
+ */
+async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; finalUrl: string }> {
+  const tiers = [
+    {
+      name: 'Chrome Desktop Moderno',
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+      },
+    },
+    {
+      name: 'Mobile iPhone Safari (Cloaker Bypass)',
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+      },
+    },
+    {
+      name: 'Social Media Crawler (Facebook/WhatsApp)',
+      headers: {
+        'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+        Accept: '*/*',
+        'Accept-Language': 'pt-BR,pt;q=0.9',
+      },
+    },
+  ];
+
+  let lastError: any = null;
+
+  for (const tier of tiers) {
+    try {
+      console.log(`[Cloner] Tentando download com: ${tier.name}`);
+      const res = await axios.get(targetUrl, {
+        timeout: 18000,
+        headers: tier.headers,
+        maxRedirects: 8,
+        validateStatus: (status) => status < 400,
+      });
+
+      if (res.data && typeof res.data === 'string' && res.data.length > 500) {
+        const isCfBlock =
+          res.data.includes('cf-browser-verification') ||
+          res.data.includes('Just a moment...') ||
+          res.data.includes('Attention Required! | Cloudflare');
+        if (!isCfBlock) {
+          const finalUrl = res.request?.res?.responseUrl || targetUrl;
+          return { html: res.data, finalUrl };
+        }
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[Cloner] Tier '${tier.name}' falhou:`, err.message || err);
+    }
+  }
+
+  // Tier 4: Serverless Proxy Fallback (AllOrigins)
+  try {
+    console.log('[Cloner] Acionando Tier 4: Serverless Proxy Fallback...');
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+    const proxyRes = await axios.get(proxyUrl, {
+      timeout: 20000,
+      validateStatus: (status) => status < 400,
+    });
+
+    if (proxyRes.data && typeof proxyRes.data === 'string' && proxyRes.data.length > 200) {
+      return { html: proxyRes.data, finalUrl: targetUrl };
+    }
+  } catch (proxyErr: any) {
+    console.warn('[Cloner] Tier 4 Proxy falhou:', proxyErr.message || proxyErr);
+  }
+
+  if (lastError) throw lastError;
+  throw new Error('Não foi possível obter o conteúdo HTML da página.');
+}
+
+/**
+ * 2. Reescrita de URLs relativas em CSS para absolutas
+ */
+function rewriteCssUrls(css: string, baseUrl: URL): string {
+  if (!css || typeof css !== 'string') return '';
+  return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (match, quote, rawUrl) => {
+    const trimmed = rawUrl.trim();
+    if (
+      trimmed.startsWith('data:') ||
+      trimmed.startsWith('blob:') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('//')
+    ) {
+      return match;
+    }
+    try {
+      const abs = new URL(trimmed, baseUrl.href).href;
+      return `url("${abs}")`;
+    } catch {
+      return match;
+    }
+  });
+}
+
+/**
+ * 3. Detecção e acompanhamento de redirecionamentos HTML / JS
+ */
+function checkHtmlRedirect(html: string, currentUrl: URL): string | null {
+  const metaMatch = html.match(/<meta[^>]*http-equiv=["']?refresh["']?[^>]*content=["'][^"']*url=([^"'>]+)["']/i);
+  if (metaMatch && metaMatch[1]) {
+    try {
+      const dest = new URL(metaMatch[1].trim(), currentUrl.href).href;
+      if (dest !== currentUrl.href) return dest;
+    } catch {}
+  }
+
+  if (html.length < 3000) {
+    const jsMatch =
+      html.match(/(?:window\.)?location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i) ||
+      html.match(/location\.replace\(['"]([^'"]+)['"]\)/i) ||
+      html.match(/location\.assign\(['"]([^'"]+)['"]\)/i);
+    if (jsMatch && jsMatch[1]) {
+      try {
+        const dest = new URL(jsMatch[1].trim(), currentUrl.href).href;
+        if (dest !== currentUrl.href) return dest;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/**
+ * 4. Auto-Descoberta Profunda de Páginas de Vendas (Cloaker Bypass)
+ */
+async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise<{ html: string; finalUrl: URL }> {
+  const hasStrongOfferMarkers =
+    initialHtml.length > 45000 &&
+    /kiwify|hotmart|monetizze|eduzz|braip|perfectpay|cakto|kirvano|pepper|checkout|comprar|adquirir|pagar|garantir|vsl|oferta/i.test(
+      initialHtml
+    );
+
+  const isDefaultEmptyWp =
+    initialHtml.includes('Welcome to WordPress. This is your first post') ||
+    (initialHtml.includes('Welcome to WordPress') && initialHtml.includes('Hello world!')) ||
+    (initialHtml.includes('wp-content') && initialHtml.includes('Hello world!') && initialHtml.length < 50000) ||
+    initialHtml.includes('Just another WordPress site') ||
+    initialHtml.includes('Welcome to your new site') ||
+    ((baseUrl.pathname === '/' || baseUrl.pathname === '') && initialHtml.length < 20000);
+
+  // Redirecionamento explícito
+  const redirectTarget = checkHtmlRedirect(initialHtml, baseUrl);
+  if (redirectTarget) {
+    try {
+      console.log(`[Cloner] Redirecionamento detectado para: ${redirectTarget}`);
+      const redirected = await fetchWithMultiTier(redirectTarget);
+      if (redirected.html && redirected.html.length > 1000) {
+        return { html: redirected.html, finalUrl: new URL(redirectTarget) };
+      }
+    } catch {}
+  }
+
+  if (!isDefaultEmptyWp && hasStrongOfferMarkers) {
+    return { html: initialHtml, finalUrl: baseUrl };
+  }
+
+  console.log('[Cloner] Página inicial com indício de cloaker ou raiz vazia. Iniciando auto-descoberta profunda da oferta real...');
+  const priorityKeywords = /segura|principal|vendas|oferta|pv|vsl|app|cdd|lp|checkout|produto|curso|metodo|oficial|home/i;
+
+  // Método A: API REST WordPress (/wp-json/wp/v2/pages)
+  try {
+    const wpApiUrl = new URL('/wp-json/wp/v2/pages?per_page=50', baseUrl.origin).href;
+    const wpRes = await axios.get(wpApiUrl, { timeout: 7000, validateStatus: () => true });
+    if (Array.isArray(wpRes.data) && wpRes.data.length > 0) {
+      const bestPage =
+        wpRes.data.find(
+          (p: any) => priorityKeywords.test(p.slug || '') || priorityKeywords.test(p.title?.rendered || '')
+        ) || wpRes.data[0];
+
+      if (bestPage?.link) {
+        console.log(`[Cloner] Auto-descoberta via WP API encontrou: ${bestPage.link}`);
+        const fetched = await fetchWithMultiTier(bestPage.link);
+        if (fetched.html && fetched.html.length > 10000) {
+          return { html: fetched.html, finalUrl: new URL(bestPage.link) };
+        }
+      }
+    }
+  } catch (wpErr) {
+    console.warn('[Cloner] WP API indisponível:', wpErr);
+  }
+
+  // Método B: Sitemap XML (/wp-sitemap-posts-page-1.xml ou /sitemap.xml)
+  const sitemapCandidates = ['/wp-sitemap-posts-page-1.xml', '/sitemap.xml', '/sitemap_index.xml'];
+  for (const smPath of sitemapCandidates) {
+    try {
+      const smUrl = new URL(smPath, baseUrl.origin).href;
+      const smRes = await axios.get(smUrl, { timeout: 6000, validateStatus: () => true });
+      if (typeof smRes.data === 'string' && smRes.data.includes('<loc>')) {
+        const matches = Array.from(smRes.data.matchAll(/<loc>(https?:\/\/[^<]+)<\/loc>/gi)).map((m) => m[1]);
+        const bestUrl = matches.find((u) => priorityKeywords.test(u) && u !== baseUrl.href && u !== `${baseUrl.origin}/`);
+        if (bestUrl) {
+          console.log(`[Cloner] Auto-descoberta via Sitemap XML encontrou: ${bestUrl}`);
+          const fetched = await fetchWithMultiTier(bestUrl);
+          if (fetched.html && fetched.html.length > 10000) {
+            return { html: fetched.html, finalUrl: new URL(bestUrl) };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // Método C: Links internos na home
+  try {
+    const $ = cheerio.load(initialHtml);
+    const internalLinks: string[] = [];
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href');
+      if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+        try {
+          const resolved = new URL(href, baseUrl.href).href;
+          if (resolved.startsWith(baseUrl.origin) && resolved !== baseUrl.href && resolved !== `${baseUrl.origin}/`) {
+            internalLinks.push(resolved);
+          }
+        } catch {}
+      }
+    });
+
+    const bestInternal = internalLinks.find((u) => priorityKeywords.test(u));
+    if (bestInternal) {
+      console.log(`[Cloner] Auto-descoberta via Links Internos encontrou: ${bestInternal}`);
+      const fetched = await fetchWithMultiTier(bestInternal);
+      if (fetched.html && fetched.html.length > 10000) {
+        return { html: fetched.html, finalUrl: new URL(bestInternal) };
+      }
+    }
+  } catch {}
+
+  // Método D: Sonda Concorrente de Slugs Universais de Páginas de Vendas
+  const COMMON_SALES_SLUGS = [
+    '/pagina-segura/',
+    '/pagina-segura',
+    '/pv/',
+    '/pv',
+    '/pv-oficial/',
+    '/vsl/',
+    '/vsl',
+    '/oferta/',
+    '/oferta',
+    '/lp/',
+    '/lp',
+    '/vendas/',
+    '/vendas',
+    '/oficial/',
+    '/oficial',
+    '/metodo/',
+    '/curso/',
+    '/checkout/',
+    '/app/',
+  ];
+
+  try {
+    console.log('[Cloner] Executando sonda concorrente de slugs universais de oferta...');
+    const probePromises = COMMON_SALES_SLUGS.map(async (slug) => {
+      const probeUrl = new URL(slug, baseUrl.origin).href;
+      try {
+        const res = await axios.get(probeUrl, {
+          timeout: 6000,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+          },
+          maxRedirects: 3,
+          validateStatus: (s) => s === 200,
+        });
+        if (typeof res.data === 'string' && res.data.length > 20000) {
+          return { html: res.data, url: probeUrl };
+        }
+      } catch {}
+      return null;
+    });
+
+    const probeResults = await Promise.all(probePromises);
+    const validProbe = probeResults.find((r) => r !== null);
+    if (validProbe) {
+      console.log(`[Cloner] Sonda de slug universal encontrou a página da oferta: ${validProbe.url}`);
+      return { html: validProbe.html, finalUrl: new URL(validProbe.url) };
+    }
+  } catch (probeErr) {
+    console.warn('[Cloner] Sonda de slugs finalizada sem novos achados:', probeErr);
+  }
+
+  return { html: initialHtml, finalUrl: baseUrl };
+}
+
+/**
+ * Motor Cheerio de Alta Fidelidade: 100% Serverless, sem necessidade de Chromium binário.
+ * Baixa o HTML, auto-descobre páginas reais, reescreve links/mídias/CSS, injeta escudo anti-tela branca e gera a árvore de elementos.
  */
 async function cloneWithCheerio(
   cloneId: string,
@@ -85,64 +392,14 @@ async function cloneWithCheerio(
     data: { status: 'FETCHING', progress: 30 },
   });
 
-  let baseUrl = new URL(targetUrl);
+  // 1. Download Multi-Tier à prova de bloqueios
+  const initialFetch = await fetchWithMultiTier(targetUrl);
+  let baseUrl = new URL(initialFetch.finalUrl || targetUrl);
 
-  const response = await axios.get(targetUrl, {
-    timeout: 25000,
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      Accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Sec-Ch-Ua': '"Chromium";v="124", "Not-A.Brand";v="99"',
-      'Sec-Ch-Ua-Mobile': '?0',
-      'Sec-Ch-Ua-Platform': '"Windows"',
-      'Upgrade-Insecure-Requests': '1',
-    },
-    maxRedirects: 5,
-    validateStatus: (status) => status < 400,
-  });
-
-  let rawHtml = response.data;
-  if (!rawHtml || typeof rawHtml !== 'string') {
-    throw new Error('Não foi possível obter o conteúdo HTML da página.');
-  }
-
-  // 0. Detecção Inteligente de Domínio Raiz WordPress Vazio / Cloaker
-  // Se o site for um blog padrão vazio com "Hello world!" ou "Welcome to WordPress",
-  // busca na API /wp-json/wp/v2/pages se existe uma página de vendas real publicada
-  const isDefaultEmptyWp = (
-    rawHtml.includes('Welcome to WordPress. This is your first post') ||
-    (rawHtml.includes('Welcome to WordPress') && rawHtml.includes('Hello world!')) ||
-    (rawHtml.includes('wp-content') && rawHtml.includes('Hello world!') && rawHtml.length < 50000)
-  );
-
-  if (isDefaultEmptyWp && (baseUrl.pathname === '/' || baseUrl.pathname === '')) {
-    try {
-      const wpApiUrl = new URL('/wp-json/wp/v2/pages', baseUrl.origin).href;
-      const wpRes = await axios.get(wpApiUrl, { timeout: 8000, validateStatus: () => true });
-      if (Array.isArray(wpRes.data) && wpRes.data.length > 0) {
-        const priorityKeywords = /segura|principal|vendas|oferta|pv|vsl|app|cdd|lp|checkout|produto/i;
-        const bestPage = wpRes.data.find((p: any) => priorityKeywords.test(p.slug || '') || priorityKeywords.test(p.title?.rendered || '')) || wpRes.data[0];
-        if (bestPage?.link) {
-          console.log(`[Cloner] Detectado WordPress vazio na raiz. Redirecionando automaticamente para a página real da oferta: ${bestPage.link}`);
-          const realRes = await axios.get(bestPage.link, {
-            timeout: 25000,
-            headers: response.config.headers,
-            maxRedirects: 5,
-            validateStatus: (status) => status < 400,
-          });
-          if (realRes.data && typeof realRes.data === 'string') {
-            rawHtml = realRes.data;
-            baseUrl = new URL(bestPage.link);
-          }
-        }
-      }
-    } catch (wpErr) {
-      console.warn('[Cloner] Não foi possível buscar páginas via WP API:', wpErr);
-    }
-  }
+  // 2. Auto-descoberta de página de vendas caso seja cloaker ou raiz vazia
+  const resolvedPage = await discoverRealSalesPage(initialFetch.html, baseUrl);
+  let rawHtml = resolvedPage.html;
+  baseUrl = resolvedPage.finalUrl;
 
   await prisma.clone.update({
     where: { id: cloneId },
@@ -165,7 +422,7 @@ async function cloneWithCheerio(
     }
   }
 
-  // 1. Garantir tag <base> para resolução imediata de links e requisições dinâmicas
+  // 3. Garantir tag <base> para resolução imediata de links e requisições dinâmicas
   if ($('head').length > 0) {
     if ($('base').length === 0) {
       $('head').prepend(`<base href="${baseUrl.origin}/">`);
@@ -174,12 +431,41 @@ async function cloneWithCheerio(
     $('html').prepend(`<head><base href="${baseUrl.origin}/"></head>`);
   }
 
-  // 2. Converter URLs relativas em absolutas (imagens, links, mídia, stylesheets)
+  // 4. Neutralizar Preloaders e Bloqueadores de Tela Branca no DOM
+  $(
+    '#preloader, .preloader, #loading, .loading-screen, .elementor-loader, .elementor-loading, .page-loader, .preloader-wrapper, #page-preloader, [class*="preloader"], [id*="preloader"], [class*="loader-wrapper"], [class*="loading-overlay"]'
+  ).remove();
+
+  // Injetar Escudo Anti-Tela Branca (Garante 100% de visibilidade e anula telas brancas de temas/plugins)
+  const antiBlankShield = `
+<style id="roi-anti-blank-shield">
+  html, body {
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: block !important;
+    min-height: 100vh !important;
+  }
+  #preloader, .preloader, #loading, .loading-screen, .elementor-loader, .elementor-loading, .page-loader, [class*="preloader"], [id*="preloader"], [class*="loader-wrapper"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+</style>
+`;
+  if ($('head').length > 0) {
+    $('head').append(antiBlankShield);
+  } else {
+    $('body').prepend(antiBlankShield);
+  }
+
+  // 5. Converter URLs relativas em absolutas (stylesheets, links, scripts)
   $('link').each((_, el) => {
     const href = $(el).attr('href');
     if (href) $(el).attr('href', resolveUrl(href));
   });
 
+  // 6. Neutralizar framebusters, loops de debugger e travas de hostname
   $('script').each((_, el) => {
     const src = $(el).attr('src');
     if (src) {
@@ -189,6 +475,9 @@ async function cloneWithCheerio(
       if (
         scriptContent.includes('top.location') ||
         scriptContent.includes('window.top') ||
+        scriptContent.includes('location.hostname') ||
+        scriptContent.includes('location.host') ||
+        scriptContent.includes('debugger') ||
         scriptContent.includes('top !== self') ||
         scriptContent.includes('self !== top')
       ) {
@@ -196,26 +485,35 @@ async function cloneWithCheerio(
           .replace(/top\.location\s*=/gi, '// top.location =')
           .replace(/window\.top\s*!==\s*window\.self/gi, 'false')
           .replace(/top\s*!==\s*self/gi, 'false')
-          .replace(/self\s*!==\s*top/gi, 'false');
+          .replace(/self\s*!==\s*top/gi, 'false')
+          .replace(/debugger;/gi, '/* debugger */')
+          .replace(/location\.hostname\s*!==/gi, 'false &&')
+          .replace(/location\.host\s*!==/gi, 'false &&');
         $(el).html(scriptContent);
       }
     }
   });
 
+  // 7. Imagens: Desativar lazy-loading e converter para eager loading com caminhos absolutos
   $('img').each((_, el) => {
     const src = $(el).attr('src');
     if (src) $(el).attr('src', resolveUrl(src));
 
-    const dataSrc = $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-lazy-src') || $(el).attr('data-srcset');
+    const dataSrc =
+      $(el).attr('data-src') ||
+      $(el).attr('data-original') ||
+      $(el).attr('data-lazy-src') ||
+      $(el).attr('data-hi-res-src') ||
+      $(el).attr('data-fallback-src');
     if (dataSrc) {
       const absDataSrc = resolveUrl(dataSrc);
       $(el).attr('data-src', absDataSrc);
-      if (!src || src.startsWith('data:image/gif') || src.startsWith('data:image/svg') || src.includes('placeholder')) {
-        $(el).attr('src', absDataSrc);
-      }
+      $(el).attr('src', absDataSrc);
     }
 
-    const srcset = $(el).attr('srcset');
+    $(el).attr('loading', 'eager');
+
+    const srcset = $(el).attr('srcset') || $(el).attr('data-srcset');
     if (srcset) {
       const parts = srcset
         .split(',')
@@ -228,7 +526,15 @@ async function cloneWithCheerio(
     }
   });
 
-  // 3. IA Assistente: Substituição inteligente de Checkout próprio
+  // 8. Reeescrever caminhos de imagens em background inline
+  $('[style]').each((_, el) => {
+    const styleVal = $(el).attr('style');
+    if (styleVal && styleVal.includes('url(')) {
+      $(el).attr('style', rewriteCssUrls(styleVal, baseUrl));
+    }
+  });
+
+  // 9. IA Assistente: Substituição inteligente de Checkout próprio
   const checkoutKeywords = /checkout|pay|kiwify|hotmart|monetizze|eduzz|braip|perfectpay|cakto|kirvano|pepper|cart|comprar|adquirir|pagar|assinar|matricul|inscric|inscreva|garantir|vendas/i;
   
   $('a').each((_, el) => {
@@ -236,7 +542,6 @@ async function cloneWithCheerio(
     const text = $(el).text() || '';
     const classes = $(el).attr('class') || '';
 
-    // Se o usuário forneceu seu próprio link de checkout no assistente da IA
     if (options?.newCheckoutUrl && (checkoutKeywords.test(href || '') || checkoutKeywords.test(text) || checkoutKeywords.test(classes))) {
       $(el).attr('href', options.newCheckoutUrl);
       $(el).attr('target', '_blank');
@@ -251,7 +556,7 @@ async function cloneWithCheerio(
     if (src) $(el).attr('src', resolveUrl(src));
   });
 
-  // 3. IA Assistente: Injeção de Checkout PIX se configurado
+  // 10. IA Assistente: Injeção de Checkout PIX se configurado
   if (options?.pixKey) {
     const safePixKey = options.pixKey.replace(/[^a-zA-Z0-9@._-]/g, '');
     const pixModalHtml = `
@@ -292,11 +597,14 @@ async function cloneWithCheerio(
     $('body').append(pixModalHtml);
   }
 
-  // 4. Extrair CSS inline e folhas de estilo externas
+  // 11. Extrair CSS inline e folhas de estilo externas com reescrita de URLs
   let aggregatedCss = '';
 
   $('style').each((_, el) => {
-    aggregatedCss += $(el).html() + '\n';
+    const rawStyle = $(el).html() || '';
+    const rewritten = rewriteCssUrls(rawStyle, baseUrl);
+    $(el).html(rewritten);
+    aggregatedCss += rewritten + '\n';
   });
 
   const stylesheetHrefs: string[] = [];
@@ -309,15 +617,19 @@ async function cloneWithCheerio(
     }
   });
 
-  // Baixa os primeiros 8 arquivos CSS externos em paralelo
-  const cssFetches = stylesheetHrefs.slice(0, 8).map(async (href) => {
+  // Baixa até 20 arquivos CSS externos em paralelo com timeout generoso
+  const cssFetches = stylesheetHrefs.slice(0, 20).map(async (href) => {
     try {
       const cssRes = await axios.get(href, {
-        timeout: 4000,
-        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: 6000,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        },
       });
       if (typeof cssRes.data === 'string') {
-        return `/* Stylesheet: ${href} */\n` + cssRes.data;
+        const rewritten = rewriteCssUrls(cssRes.data, baseUrl);
+        return `/* Stylesheet: ${href} */\n` + rewritten;
       }
     } catch {
       return '';
@@ -337,7 +649,7 @@ async function cloneWithCheerio(
     data: { status: 'RECONSTRUCTING', progress: 75 },
   });
 
-  // 5. Monta a árvore de ElementNodes compatível com o Editor Visual
+  // 12. Monta a árvore de ElementNodes compatível com o Editor Visual
   function getElementType(tagName: string): string {
     const t = tagName.toLowerCase();
     if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label', 'b', 'strong', 'i', 'em', 'small'].includes(t))

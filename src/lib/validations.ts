@@ -27,10 +27,30 @@ export const pageSchema = z.object({
   domainId: z.string().optional(),
 });
 
+const urlPreprocess = z.preprocess((val) => {
+  if (typeof val !== 'string') return val;
+  const trimmed = val.trim();
+  if (!trimmed) return trimmed;
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return trimmed;
+}, z.string().url('URL inválida'));
+
+const optionalUrlPreprocess = z.preprocess((val) => {
+  if (typeof val !== 'string') return val;
+  const trimmed = val.trim();
+  if (!trimmed) return '';
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return trimmed;
+}, z.string().url('URL inválida').optional().or(z.literal('')));
+
 export const cloneSchema = z.object({
-  sourceUrl: z.string().url('URL inválida'),
+  sourceUrl: urlPreprocess,
   name: z.string().min(1, 'Nome é obrigatório').max(100),
-  newCheckoutUrl: z.string().url('URL de checkout inválida').optional().or(z.literal('')),
+  newCheckoutUrl: optionalUrlPreprocess,
   pixKey: z.string().optional().or(z.literal('')),
   optimizeWithAi: z.boolean().optional(),
 });
