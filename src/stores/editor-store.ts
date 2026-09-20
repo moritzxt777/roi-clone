@@ -50,6 +50,7 @@ interface EditorState {
   isAiChatOpen: boolean;
   isSaving: boolean;
   saveStatus: 'saved' | 'saving' | 'unsaved';
+  undoSnapshot: { html: string; css: string } | null;
 
   // Actions
   initEditor: (data: {
@@ -74,8 +75,24 @@ interface EditorState {
   replaceUrlsInHtml: (oldUrl: string, newUrl: string) => number;
   replaceCheckoutLinks: (newCheckoutUrl: string) => number;
   injectPixModal: (config: { pixKey: string; recipientName?: string; price?: string }) => { success: boolean; buttonsUpdated: number };
+  applyVibeAction: (action: VibeAction) => { success: boolean; message: string };
+  undoVibeAction: () => boolean;
   setSaveStatus: (status: 'saved' | 'saving' | 'unsaved') => void;
   setIsSaving: (isSaving: boolean) => void;
+}
+
+export interface VibeAction {
+  type: 'DOM_MUTATION' | 'INJECT_CSS' | 'INJECT_HTML' | 'REPLACE_TEXT' | 'REPLACE_CHECKOUT' | 'INJECT_PIX' | 'EXECUTE_SCRIPT' | 'FULL_HTML';
+  description?: string;
+  css?: string;
+  html?: string;
+  position?: 'body_end' | 'body_start' | 'head';
+  replaceText?: { find: string; replace: string };
+  selector?: string;
+  styles?: Record<string, string>;
+  script?: string;
+  pixKey?: string;
+  checkoutUrl?: string;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -92,6 +109,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeModal: 'none',
   isSaving: false,
   saveStatus: 'saved',
+  undoSnapshot: null,
 
   initEditor: (data) => set({
     pageId: data.pageId,
@@ -453,5 +471,117 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       console.error('Error injecting Pix modal:', e);
       return { success: false, buttonsUpdated: 0 };
     }
+  },
+
+  applyVibeAction: (action) => {
+    const currentHtml = get().html;
+    const currentCss = get().css;
+    if (!currentHtml) return { success: false, message: 'Página vazia' };
+
+    // Salva snapshot para permitir Desfazer (Undo)
+    set({ undoSnapshot: { html: currentHtml, css: currentCss } });
+
+    try {
+      // 1. Ação de CSS puro
+      if (action.type === 'INJECT_CSS' && action.css) {
+        const newCss = `${currentCss}\n/* ROI IA Vibe Coding */\n${action.css}`;
+        set({ css: newCss, saveStatus: 'unsaved' });
+        return { success: true, message: action.description || 'Estilo visual aplicado!' };
+      }
+
+      // 2. Ação de Checkout ou Pix delegada aos métodos nativos otimizados
+      if (action.type === 'REPLACE_CHECKOUT' && action.checkoutUrl) {
+        const count = get().replaceCheckoutLinks(action.checkoutUrl);
+        return { success: true, message: `🔗 ${count} botões e links de checkout atualizados!` };
+      }
+
+      if (action.type === 'INJECT_PIX') {
+        const res = get().injectPixModal({ 
+          pixKey: action.pixKey || 'suachave@email.com',
+          recipientName: get().projectName || 'Recebedor Oficial'
+        });
+        return { success: true, message: `⚡ Modal PIX ativado em ${res.buttonsUpdated} botões!` };
+      }
+
+      // 3. Ações que manipulam o DOM
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(currentHtml, 'text/html');
+
+      if (action.type === 'INJECT_HTML' && action.html) {
+        const tempContainer = doc.createElement('div');
+        tempContainer.innerHTML = action.html;
+        const nodesToInsert = Array.from(tempContainer.childNodes);
+
+        if (action.position === 'head') {
+          nodesToInsert.forEach(n => doc.head.appendChild(n));
+        } else if (action.position === 'body_start') {
+          nodesToInsert.reverse().forEach(n => doc.body.insertBefore(n, doc.body.firstChild));
+        } else {
+          // body_end por padrão
+          nodesToInsert.forEach(n => doc.body.appendChild(n));
+        }
+      } else if (action.type === 'DOM_MUTATION' && action.selector) {
+        const matchedElements = doc.querySelectorAll(action.selector);
+        matchedElements.forEach((el) => {
+          if (action.styles) {
+            Object.entries(action.styles).forEach(([prop, val]) => {
+              (el as HTMLElement).style.setProperty(prop, val, 'important');
+            });
+          }
+          if (action.replaceText?.replace) {
+            el.textContent = action.replaceText.replace;
+          }
+        });
+      } else if (action.type === 'REPLACE_TEXT' && action.replaceText) {
+        const { find, replace } = action.replaceText;
+        if (find) {
+          const bodyHtml = doc.body.innerHTML;
+          const regex = new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          doc.body.innerHTML = bodyHtml.replace(regex, replace);
+        }
+      } else if (action.type === 'EXECUTE_SCRIPT' && action.script) {
+        try {
+          const runFn = new Function('doc', 'window', action.script);
+          runFn(doc, window);
+        } catch (scriptErr) {
+          console.warn('[VibeCoding] Script execution notice:', scriptErr);
+        }
+      } else if (action.type === 'FULL_HTML' && action.html) {
+        set({ html: action.html, saveStatus: 'unsaved' });
+        return { success: true, message: action.description || 'Página inteira atualizada com sucesso!' };
+      }
+
+      // Se veio CSS complementar junto com o HTML
+      let newCss = currentCss;
+      if (action.css) {
+        newCss = `${currentCss}\n/* ROI IA Vibe Coding */\n${action.css}`;
+      }
+
+      set({ 
+        html: doc.documentElement.outerHTML, 
+        css: newCss, 
+        saveStatus: 'unsaved' 
+      });
+
+      return { 
+        success: true, 
+        message: action.description || 'Alterações aplicadas com sucesso pelo Vibe Coding!' 
+      };
+    } catch (e: any) {
+      console.error('Error applying vibe coding action:', e);
+      return { success: false, message: e?.message || 'Falha ao aplicar alteração' };
+    }
+  },
+
+  undoVibeAction: () => {
+    const snapshot = get().undoSnapshot;
+    if (!snapshot) return false;
+    set({
+      html: snapshot.html,
+      css: snapshot.css,
+      undoSnapshot: null,
+      saveStatus: 'unsaved'
+    });
+    return true;
   },
 }));

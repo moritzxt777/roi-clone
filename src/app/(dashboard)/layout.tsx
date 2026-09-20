@@ -16,12 +16,14 @@ import {
   X, 
   Menu, 
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  Sparkles
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Início', href: '/dashboard', icon: Home },
   { name: 'Projetos', href: '/dashboard/clones', icon: Layers },
+  { name: 'ROI IA Copilot', href: '/dashboard/ai', icon: Sparkles },
   { name: 'Leads', href: '/dashboard/forms', icon: Users },
   { name: 'Configurações', href: '/dashboard/settings', icon: Settings },
 ];
