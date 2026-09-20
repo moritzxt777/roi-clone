@@ -18,6 +18,8 @@ export default async function PreviewPage(props: { params: Promise<{ id: string 
     } else {
       fullHtml = baseTag + fullHtml;
     }
+  }
+
   // Injeta folha de estilos consolidada se não estiver incorporada
   if (editorData.css && !fullHtml.includes('id="roi-aggregated-css"') && !fullHtml.includes('id="roi-preview-css"')) {
     const cssTag = `<style id="roi-preview-css">\n${editorData.css}\n</style>`;

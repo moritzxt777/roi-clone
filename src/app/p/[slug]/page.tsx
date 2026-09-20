@@ -53,6 +53,8 @@ export default async function PublishedPage(props: { params: Promise<{ slug: str
     } else {
       finalHtml = baseTag + finalHtml;
     }
+  }
+
   // Injeta folha de estilos consolidada se não estiver incorporada
   if (cssContent && !finalHtml.includes('id="roi-aggregated-css"') && !finalHtml.includes('id="roi-published-css"')) {
     const cssTag = `<style id="roi-published-css">\n${cssContent}\n</style>`;
