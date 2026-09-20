@@ -6,6 +6,7 @@ import { Providers } from './providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://roi-clone.site'),
   title: 'ROI Clone - Clone páginas e publique no seu domínio',
   description: 'Clone qualquer página web e publique no seu próprio domínio. Editor visual, SSL automático, sem planos - só conecte seu domínio.',
 };

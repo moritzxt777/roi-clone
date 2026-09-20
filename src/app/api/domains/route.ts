@@ -20,7 +20,7 @@ function generateDnsRecords(domain: string, token: string) {
     cname: {
       name: domain,
       type: 'CNAME',
-      value: 'roi-clone.pages.dev',
+      value: 'cname.roi-clone.site',
       ttl: 300,
     },
   };

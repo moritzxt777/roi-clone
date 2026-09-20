@@ -18,7 +18,12 @@ async function checkCnameRecord(domain: string): Promise<boolean> {
   try {
     const dns = await import('dns/promises');
     const records = await dns.resolveCname(domain);
-    return records.some((record) => record.includes('roi-clone.pages.dev'));
+    return records.some(
+      (record) =>
+        record.includes('roi-clone.site') ||
+        record.includes('cname.roi-clone.site') ||
+        record.includes('roi-clone.pages.dev')
+    );
   } catch {
     return false;
   }
@@ -137,7 +142,7 @@ export async function POST(
         cname: {
           name: domain.name,
           type: 'CNAME',
-          value: 'roi-clone.pages.dev',
+          value: 'cname.roi-clone.site',
           ttl: 300,
         },
       };

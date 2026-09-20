@@ -284,9 +284,9 @@ export default function DomainsPage() {
                           <p><span className="text-neutral-500">Tipo:</span> CNAME</p>
                           <p><span className="text-neutral-500">Nome:</span> {dom.name.split('.')[0] || 'www'}</p>
                           <div className="flex items-center justify-between bg-black/40 p-1.5 rounded border border-white/5 mt-1">
-                            <span className="text-blue-300 truncate">roi-clone.pages.dev</span>
+                            <span className="text-blue-300 truncate">cname.roi-clone.site</span>
                             <button
-                              onClick={() => copyToClipboard('roi-clone.pages.dev', `${dom.id}-cname`)}
+                              onClick={() => copyToClipboard('cname.roi-clone.site', `${dom.id}-cname`)}
                               className="text-neutral-400 hover:text-white p-1"
                             >
                               {copiedKey === `${dom.id}-cname` ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}

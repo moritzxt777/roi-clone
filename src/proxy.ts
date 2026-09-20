@@ -80,11 +80,24 @@ export const proxy = auth((req) => {
     return NextResponse.redirect(new URL('/dashboard', req.nextUrl));
   }
 
+  // 5. Roteamento Inteligente de Subdomínios Wildcard para roi-clone.site
+  const host = req.headers.get('host') || req.nextUrl.host || '';
+  const cleanHost = host.split(':')[0].toLowerCase();
+  if (cleanHost.endsWith('.roi-clone.site')) {
+    const subdomain = cleanHost.replace('.roi-clone.site', '');
+    if (subdomain && !['www', 'app', 'admin', 'api', 'dashboard'].includes(subdomain)) {
+      if (pathname === '/' || pathname === '') {
+        return NextResponse.rewrite(new URL(`/p/${subdomain}`, req.nextUrl));
+      }
+    }
+  }
+
   return NextResponse.next();
 });
 
 export const config = {
   matcher: [
+    '/',
     '/dashboard/:path*',
     '/admin-master/:path*',
     '/admin/:path*',
