@@ -18,13 +18,42 @@ import {
   AlertCircle,
   Globe,
   RefreshCw,
-  Clock
+  Clock,
+  Mail,
+  Send,
+  ExternalLink,
+  Sparkles
 } from 'lucide-react';
 
 export default function MoritzAdminDashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [testEmail, setTestEmail] = useState('moritzadmin777roi@gmail.com');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<{ success: boolean; msg: string } | null>(null);
+
+  const handleSendTestEmail = async () => {
+    setSendingEmail(true);
+    setEmailStatus(null);
+    try {
+      const res = await fetch('/api/email/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testEmail, name: 'Moritz Admin' }),
+      });
+      const resData = await res.json();
+      if (res.ok && resData.success) {
+        setEmailStatus({ success: true, msg: `E-mail disparado com sucesso para ${testEmail}!` });
+      } else {
+        setEmailStatus({ success: false, msg: resData.error || 'Erro ao enviar e-mail. Verifique o SMTP no .env.' });
+      }
+    } catch (err: any) {
+      setEmailStatus({ success: false, msg: err.message || 'Falha na requisição de e-mail.' });
+    } finally {
+      setSendingEmail(false);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -283,6 +312,94 @@ export default function MoritzAdminDashboard() {
                 ))
               )}
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Email Infrastructure & Template Card */}
+      <div className="p-6 rounded-2xl bg-[#0d0e14] border border-white/10 space-y-5 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              <Mail className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                Sistema de E-mails Transacionais & Template Oficial
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-blue-500/15 text-blue-400 border border-blue-500/25">
+                  HTML 2.0
+                </span>
+              </h3>
+              <p className="text-xs text-neutral-400">
+                Disparo automático de boas-vindas com design responsivo em Dark Mode para novas contas.
+              </p>
+            </div>
+          </div>
+          <a
+            href="/api/email/preview"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-neutral-300 hover:text-white transition-all border border-white/10 shrink-0 self-start sm:self-auto"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+            <span>Visualizar Template HTML</span>
+          </a>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-center">
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-2">
+            <p className="text-xs font-semibold text-white flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              Recursos do Template da ROI Clone:
+            </p>
+            <ul className="text-[11px] text-neutral-400 space-y-1.5 list-disc list-inside">
+              <li>Header escuro com badge oficial e tipografia premium da ROI Clone</li>
+              <li>Boas-vindas personalizadas com o nome do usuário cadastrado</li>
+              <li>Cards de recursos: Clonador Playwright, Editor no Canvas e ZIP</li>
+              <li>Botão CTA azul vibrante de acesso direto ao Dashboard</li>
+              <li>Compatibilidade total com Gmail, Outlook, Apple Mail e Mobile</li>
+            </ul>
+          </div>
+
+          <div className="space-y-3">
+            <label className="text-xs font-medium text-neutral-300 block">
+              Disparar E-mail de Teste em Tempo Real:
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                placeholder="exemplo@gmail.com"
+                className="flex-1 px-3.5 py-2 rounded-xl bg-[#151722] border border-white/10 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-blue-500 font-mono"
+              />
+              <button
+                onClick={handleSendTestEmail}
+                disabled={sendingEmail || !testEmail}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-blue-500/20 shrink-0"
+              >
+                {sendingEmail ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Enviando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Enviar Teste</span>
+                  </>
+                )}
+              </button>
+            </div>
+            {emailStatus && (
+              <p className={`text-[11px] p-2.5 rounded-lg border ${
+                emailStatus.success 
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                  : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+              }`}>
+                {emailStatus.msg}
+              </p>
+            )}
           </div>
         </div>
       </div>

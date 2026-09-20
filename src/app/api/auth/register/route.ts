@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '@/lib/prisma';
 import { registerSchema } from '@/lib/validations';
 import { generateApiKey } from '@/lib/validations';
+import { sendWelcomeEmail } from '@/lib/mail';
 import { headers } from 'next/headers';
 
 export async function POST(request: NextRequest) {
@@ -65,6 +66,14 @@ export async function POST(request: NextRequest) {
         entity: 'User',
         entityId: user.id,
       },
+    });
+
+    // Enviar e-mail de boas-vindas com o template visual da ROI Clone
+    sendWelcomeEmail({
+      to: user.email,
+      name: user.name || 'Usuário',
+    }).catch((err) => {
+      console.warn('Falha no envio de e-mail de boas-vindas:', err);
     });
 
     return NextResponse.json(
