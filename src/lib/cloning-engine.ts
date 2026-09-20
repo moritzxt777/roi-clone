@@ -465,13 +465,34 @@ async function cloneWithCheerio(
     if (href) $(el).attr('href', resolveUrl(href));
   });
 
-  // 6. Neutralizar framebusters, loops de debugger e travas de hostname
+  // 6. Neutralizar framebusters, loops de debugger, travas de hostname e scripts invasivos de tracking/redirect
   $('script').each((_, el) => {
-    const src = $(el).attr('src');
+    const src = $(el).attr('src') || '';
+    if (
+      src.includes('utmify') ||
+      src.includes('pixel-google') ||
+      src.includes('fbevents') ||
+      src.includes('~flock') ||
+      src.includes('analytics')
+    ) {
+      $(el).remove();
+      return;
+    }
+
     if (src) {
       $(el).attr('src', resolveUrl(src));
     } else {
       let scriptContent = $(el).html() || '';
+      if (
+        scriptContent.includes('location.replace') ||
+        scriptContent.includes('replaceState') ||
+        scriptContent.includes('googlePixelId') ||
+        scriptContent.includes('fbevents')
+      ) {
+        $(el).remove();
+        return;
+      }
+
       if (
         scriptContent.includes('top.location') ||
         scriptContent.includes('window.top') ||

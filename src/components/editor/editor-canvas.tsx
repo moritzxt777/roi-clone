@@ -156,16 +156,63 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
       </script>
     `;
 
-    // Injeta a tag base para carregar todas as imagens e links externos do site original se não existir
     let modifiedHtml = activeHtml;
+
+    // Neutralizar scripts invasivos que causam loops de redirect ou erros no iframe
+    modifiedHtml = modifiedHtml
+      .replace(/<script[^>]*src=["'][^"']*(?:utmify|fbevents|pixel-google|~flock|\/analytics)[^"']*["'][^>]*><\/script>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, (match) => {
+        if (
+          match.includes('location.replace') ||
+          match.includes('replaceState') ||
+          match.includes('window.top') ||
+          match.includes('top.location') ||
+          match.includes('googlePixelId')
+        ) {
+          return '';
+        }
+        return match;
+      });
+
+    // Injetar shims de segurança e escudo anti-tela branca
+    const safetyHeader = `
+      <script>
+        try {
+          window.history.replaceState = function() {};
+          window.history.pushState = function() {};
+          window.location.replace = function() {};
+          window.onbeforeunload = null;
+        } catch(e) {}
+      </script>
+      <style id="roi-canvas-shield">
+        html, body {
+          opacity: 1 !important;
+          visibility: visible !important;
+          display: block !important;
+          min-height: 100vh !important;
+        }
+        #preloader, .preloader, #loading, .loading-screen, .elementor-loader, .elementor-loading, .page-loader, [class*="preloader"], [id*="preloader"], [class*="loader-wrapper"], [class*="loading-overlay"] {
+          display: none !important;
+          opacity: 0 !important;
+          visibility: hidden !important;
+          pointer-events: none !important;
+        }
+      </style>
+    `;
+
+    // Injeta a tag base para carregar todas as imagens e links externos do site original se não existir
     const baseTag = activeSource ? `<base href="${activeSource}" />` : '';
 
     if (!modifiedHtml.includes('<base') && baseTag) {
       if (modifiedHtml.includes('<head>')) {
-        modifiedHtml = modifiedHtml.replace('<head>', `<head>${baseTag}`);
+        modifiedHtml = modifiedHtml.replace('<head>', `<head>${baseTag}${safetyHeader}`);
       } else {
-        modifiedHtml = `<head>${baseTag}</head>` + modifiedHtml;
+        modifiedHtml = `<head>${baseTag}${safetyHeader}</head>` + modifiedHtml;
       }
+    } else if (modifiedHtml.includes('<head>')) {
+      modifiedHtml = modifiedHtml.replace('<head>', `<head>${safetyHeader}`);
+    } else {
+      modifiedHtml = `<head>${safetyHeader}</head>` + modifiedHtml;
     }
 
     // Injeta folha de estilo caso não esteja incorporada
