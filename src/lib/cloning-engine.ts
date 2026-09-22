@@ -475,7 +475,15 @@ async function cloneWithCheerio(
       src.includes('pixel-google') ||
       src.includes('fbevents') ||
       src.includes('~flock') ||
-      src.includes('analytics')
+      src.includes('analytics') ||
+      src.includes('taboola') ||
+      src.includes('clarity') ||
+      src.includes('hotjar') ||
+      src.includes('tiktok') ||
+      src.includes('_next/static/chunks/main-app') ||
+      src.includes('_next/static/chunks/webpack') ||
+      src.includes('_next/static/chunks/app/error') ||
+      src.includes('_next/static/chunks/app/not-found')
     ) {
       $(el).remove();
       return;
@@ -489,7 +497,11 @@ async function cloneWithCheerio(
         scriptContent.includes('location.replace') ||
         scriptContent.includes('replaceState') ||
         scriptContent.includes('googlePixelId') ||
-        scriptContent.includes('fbevents')
+        scriptContent.includes('fbevents') ||
+        scriptContent.includes('clarity') ||
+        scriptContent.includes('taboola') ||
+        scriptContent.includes('utmify') ||
+        scriptContent.includes('self.__next_f')
       ) {
         $(el).remove();
         return;
@@ -516,6 +528,55 @@ async function cloneWithCheerio(
       }
     }
   });
+
+  // 6.5. Auto-Reconstrução de Conteúdo para SPAs / Next.js / XQuiz / Client-Side Funnels
+  const mainChildrenCount = $('main *').length;
+  if (mainChildrenCount < 3) {
+    const contentMatch = rawHtml.match(/"content":\s*(\[\s*\{[\s\S]*?\}\s*\])\s*,\s*"icon"/);
+    if (contentMatch) {
+      try {
+        const contentItems = JSON.parse(contentMatch[1]);
+        let generatedHtml = '';
+        for (const item of contentItems) {
+          if (item.type === 'imageV3' && item.data?.image?.uuid) {
+            const imgUrl = `https://cdn.xquiz.co/images/${item.data.image.uuid}`;
+            generatedHtml += `
+              <div class="flex flex-auto justify-center mb-6">
+                <img src="${imgUrl}" alt="${item.title || ''}" class="max-w-xs h-auto rounded-lg shadow-md" style="width: 256px; height: auto;" />
+              </div>
+            `;
+          } else if (item.type === 'heading' || item.type === 'text' || item.data?.content) {
+            const txt = item.data?.text || item.data?.content || item.title || '';
+            generatedHtml += `
+              <div class="text-center my-4">
+                <h2 class="text-xl font-bold text-gray-900">${txt}</h2>
+              </div>
+            `;
+          } else if (item.type === 'button' || item.type === 'buttonV3' || item.title === 'Botão') {
+            const btnText = item.data?.text || item.data?.label || 'Continuar';
+            const btnUrl = item.data?.url || item.data?.link || '#';
+            generatedHtml += `
+              <div class="flex justify-center my-6">
+                <a href="${btnUrl}" class="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-lg rounded-xl shadow-lg transition-transform hover:scale-105 inline-block text-center">
+                  ${btnText}
+                </a>
+              </div>
+            `;
+          }
+        }
+
+        if (generatedHtml) {
+          if ($('main').length > 0) {
+            $('main').html(generatedHtml);
+          } else {
+            $('body').prepend(`<main class="max-w-lg mx-auto px-4 py-8">${generatedHtml}</main>`);
+          }
+        }
+      } catch (parseErr) {
+        console.warn('[Cloner] Notice on SPA reconstruction:', parseErr);
+      }
+    }
+  }
 
   // 7. Imagens: Desativar lazy-loading e converter para eager loading com caminhos absolutos
   $('img').each((_, el) => {
@@ -1039,11 +1100,28 @@ async function cloneWithCheerio(
             $sub(el).attr('loading', 'eager');
           });
 
-          // Neutralizar scripts invasivos
+          // Neutralizar scripts invasivos e de hidratação que causam travamento/tela branca
           $sub('script').each((_, el) => {
             const s = $sub(el).attr('src') || '';
             const c = $sub(el).html() || '';
-            if (s.includes('utmify') || s.includes('fbevents') || c.includes('top.location') || c.includes('debugger')) {
+            if (
+              s.includes('utmify') ||
+              s.includes('fbevents') ||
+              s.includes('pixel-google') ||
+              s.includes('taboola') ||
+              s.includes('clarity') ||
+              s.includes('hotjar') ||
+              s.includes('tiktok') ||
+              s.includes('_next/static/chunks/main-app') ||
+              s.includes('_next/static/chunks/webpack') ||
+              s.includes('_next/static/chunks/app/error') ||
+              s.includes('_next/static/chunks/app/not-found') ||
+              c.includes('top.location') ||
+              c.includes('debugger') ||
+              c.includes('self.__next_f') ||
+              c.includes('clarity') ||
+              c.includes('taboola')
+            ) {
               $sub(el).remove();
             }
           });

@@ -158,31 +158,63 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
 
     let modifiedHtml = activeHtml;
 
-    // Neutralizar scripts invasivos que causam loops de redirect ou erros no iframe
+    // Neutralizar scripts invasivos que causam loops de redirect, erros de hidratação ou tela branca no iframe
     modifiedHtml = modifiedHtml
-      .replace(/<script[^>]*src=["'][^"']*(?:utmify|fbevents|pixel-google|~flock|\/analytics)[^"']*["'][^>]*><\/script>/gi, '')
+      .replace(/<script[^>]*src=["'][^"']*(?:utmify|fbevents|pixel-google|~flock|\/analytics|taboola|clarity|hotjar|tiktok)[^"']*["'][^>]*><\/script>/gi, '')
+      .replace(/<script[^>]*src=["'][^"']*\/_next\/static\/chunks\/(?:main-app|webpack|app\/layout|app\/error|app\/not-found)[^"']*["'][^>]*><\/script>/gi, '')
       .replace(/<script[\s\S]*?<\/script>/gi, (match) => {
         if (
           match.includes('location.replace') ||
           match.includes('replaceState') ||
           match.includes('window.top') ||
           match.includes('top.location') ||
-          match.includes('googlePixelId')
+          match.includes('googlePixelId') ||
+          match.includes('self.__next_f') ||
+          match.includes('clarity') ||
+          match.includes('taboola') ||
+          match.includes('Application error')
         ) {
           return '';
         }
         return match;
       });
 
-    // Injetar shims de segurança e escudo anti-tela branca
+    // Injetar shims de segurança, storage mock e escudo anti-tela branca definitivo
     const safetyHeader = `
       <script>
-        try {
-          window.history.replaceState = function() {};
-          window.history.pushState = function() {};
-          window.location.replace = function() {};
-          window.onbeforeunload = null;
-        } catch(e) {}
+        (function() {
+          // 1. In-memory Storage Mock (impede SecurityError: Access is denied ao rodar em iframe/sandbox)
+          try {
+            var _mem = {};
+            var _mockStorage = {
+              getItem: function(k) { return Object.prototype.hasOwnProperty.call(_mem, k) ? _mem[k] : null; },
+              setItem: function(k, v) { _mem[k] = String(v); },
+              removeItem: function(k) { delete _mem[k]; },
+              clear: function() { _mem = {}; },
+              key: function(i) { return Object.keys(_mem)[i] || null; },
+              get length() { return Object.keys(_mem).length; }
+            };
+            Object.defineProperty(window, 'localStorage', { value: _mockStorage, configurable: true, writable: true });
+            Object.defineProperty(window, 'sessionStorage', { value: _mockStorage, configurable: true, writable: true });
+          } catch(e) {}
+
+          // 2. Mock de Cookie e History
+          try {
+            window.history.replaceState = function() {};
+            window.history.pushState = function() {};
+            window.location.replace = function() {};
+            window.onbeforeunload = null;
+          } catch(e) {}
+
+          // 3. Suprimir completamente erros de hidratação do React / Next.js no canvas
+          window.onerror = function() { return true; };
+          window.addEventListener('unhandledrejection', function(e) {
+            if (e && e.preventDefault) e.preventDefault();
+          });
+          window.addEventListener('error', function(e) {
+            if (e && e.preventDefault) e.preventDefault();
+          }, true);
+        })();
       </script>
       <style id="roi-canvas-shield">
         html, body {
