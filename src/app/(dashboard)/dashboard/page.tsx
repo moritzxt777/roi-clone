@@ -16,7 +16,9 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
-  ShieldAlert
+  ShieldAlert,
+  Zap,
+  Layers
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
@@ -40,6 +42,8 @@ export default function DashboardPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [crawlFullSite, setCrawlFullSite] = useState(false);
+  const [maxPages, setMaxPages] = useState(6);
   
   const [clones, setClones] = useState<CloneItem[]>([]);
   const [loadingClones, setLoadingClones] = useState(true);
@@ -93,7 +97,12 @@ export default function DashboardPage() {
       const res = await fetch('/api/clones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceUrl: url, name: hostname }),
+        body: JSON.stringify({
+          sourceUrl: url,
+          name: hostname,
+          crawlFullSite,
+          maxPages: crawlFullSite ? Number(maxPages) : undefined,
+        }),
       });
 
       if (!res.ok) {
@@ -195,7 +204,7 @@ export default function DashboardPage() {
           </p>
 
           {/* Barra de Entrada Principal de URL */}
-          <form onSubmit={handleClone} className="mt-8 relative max-w-2xl mx-auto">
+          <form onSubmit={handleClone} className="mt-8 relative max-w-2xl mx-auto space-y-3">
             <div className="relative flex items-center rounded-2xl border border-white/15 bg-[#10121a]/90 p-1.5 shadow-2xl backdrop-blur-xl focus-within:border-blue-500/60 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all">
               <div className="pl-4 text-neutral-500">
                 <Globe className="w-5 h-5 text-blue-400" />
@@ -221,12 +230,84 @@ export default function DashboardPage() {
                   </>
                 ) : (
                   <>
-                    <span>Clonar Página</span>
+                    <span>{crawlFullSite ? 'Clonar com HTTrack' : 'Clonar Página'}</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
             </div>
+
+            {/* Seletor de Modo: Página Única vs HTTrack Funil Completo */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left pt-1">
+              <button
+                type="button"
+                onClick={() => setCrawlFullSite(false)}
+                className={`p-3 rounded-xl border transition-all text-left relative ${
+                  !crawlFullSite
+                    ? 'bg-blue-600/10 border-blue-500/50 shadow-sm shadow-blue-500/10'
+                    : 'bg-[#10121a]/60 border-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Zap className={`w-4 h-4 ${!crawlFullSite ? 'text-blue-400' : 'text-neutral-400'}`} />
+                  <span className="text-xs font-bold text-white">Página Única (Rápido)</span>
+                </div>
+                <p className="text-[11px] text-neutral-400 leading-relaxed">
+                  Clona apenas a Landing Page em ~5s. Ideal para testes rápidos.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCrawlFullSite(true)}
+                className={`p-3 rounded-xl border transition-all text-left relative ${
+                  crawlFullSite
+                    ? 'bg-blue-600/10 border-blue-500/50 shadow-sm shadow-blue-500/10'
+                    : 'bg-[#10121a]/60 border-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <Globe className={`w-4 h-4 ${crawlFullSite ? 'text-blue-400' : 'text-neutral-400'}`} />
+                    <span className="text-xs font-bold text-white">Site Completo & Funil com IA</span>
+                  </div>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-semibold uppercase">HTTrack</span>
+                </div>
+                <p className="text-[11px] text-neutral-400 leading-relaxed">
+                  Rastreia e clona subpáginas, checkout, links do funil e imagens offline.
+                </p>
+              </button>
+            </div>
+
+            {crawlFullSite && (
+              <div className="p-3 rounded-xl bg-blue-950/25 border border-blue-500/20 text-left space-y-2 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-neutral-300 font-medium flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-blue-400" />
+                    Limite de páginas a clonar no funil:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {[4, 6, 8, 12].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setMaxPages(num)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                          maxPages === num
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'bg-white/5 hover:bg-white/10 text-neutral-400'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[10px] text-neutral-400 leading-relaxed">
+                  💡 Modo HTTrack ativo: As páginas do funil serão interligadas para você navegar passo-a-passo mesmo offline ou ao hospedar o arquivo ZIP.
+                </p>
+              </div>
+            )}
           </form>
           {error && (
             <p className="text-xs text-red-400 bg-red-950/40 border border-red-500/20 p-2 rounded-lg max-w-md mx-auto mt-2">

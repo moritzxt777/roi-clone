@@ -19,7 +19,8 @@ import {
   Loader2,
   X,
   Plus,
-  Play
+  Play,
+  Zap
 } from 'lucide-react';
 
 interface OfferItem {
@@ -70,6 +71,8 @@ export default function OfertasPage() {
   // Modal de clonagem rápida
   const [cloneModalOffer, setCloneModalOffer] = useState<OfferItem | null>(null);
   const [cloneProjectName, setCloneProjectName] = useState('');
+  const [crawlFullSite, setCrawlFullSite] = useState(false);
+  const [maxPages, setMaxPages] = useState(6);
   const [isCloning, setIsCloning] = useState(false);
   const [cloneError, setCloneError] = useState<string | null>(null);
 
@@ -129,6 +132,8 @@ export default function OfertasPage() {
         body: JSON.stringify({
           sourceUrl: cloneModalOffer.url,
           name: cloneProjectName.trim() || cloneModalOffer.title || 'Oferta Clonada',
+          crawlFullSite,
+          maxPages: crawlFullSite ? Number(maxPages) : undefined,
         }),
       });
 
@@ -542,6 +547,83 @@ export default function OfertasPage() {
                 />
               </div>
 
+              {/* Modo de Clonagem: Página Única vs HTTrack Funil Completo */}
+              <div>
+                <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                  Modo de Clonagem da Oferta:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCrawlFullSite(false)}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      !crawlFullSite
+                        ? 'bg-blue-600/10 border-blue-500/50 shadow-sm shadow-blue-500/10'
+                        : 'bg-[#151722] border-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Zap className={`w-4 h-4 ${!crawlFullSite ? 'text-blue-400' : 'text-neutral-400'}`} />
+                      <span className="text-xs font-bold text-white">Página Única (Rápido)</span>
+                    </div>
+                    <p className="text-[11px] text-neutral-400 leading-relaxed">
+                      Clona a Landing Page em ~5s. Ideal para testes rápidos.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCrawlFullSite(true)}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      crawlFullSite
+                        ? 'bg-blue-600/10 border-blue-500/50 shadow-sm shadow-blue-500/10'
+                        : 'bg-[#151722] border-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Globe className={`w-4 h-4 ${crawlFullSite ? 'text-blue-400' : 'text-neutral-400'}`} />
+                        <span className="text-xs font-bold text-white">Site Completo & Funil</span>
+                      </div>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-semibold uppercase">HTTrack</span>
+                    </div>
+                    <p className="text-[11px] text-neutral-400 leading-relaxed">
+                      Rastreia subpáginas, checkout, carrinho e mídias offline.
+                    </p>
+                  </button>
+                </div>
+
+                {crawlFullSite && (
+                  <div className="mt-2.5 p-3 rounded-xl bg-blue-950/20 border border-blue-500/20 space-y-2 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-neutral-300 font-medium flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-blue-400" />
+                        Limite de páginas a clonar:
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {[4, 6, 8, 12].map((num) => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => setMaxPages(num)}
+                            className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-colors ${
+                              maxPages === num
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'bg-white/5 hover:bg-white/10 text-neutral-400'
+                            }`}
+                          >
+                            {num}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-neutral-400 leading-relaxed">
+                      💡 Todas as páginas do funil serão baixadas e empacotadas no arquivo ZIP para navegação interativa offline.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {cloneError && (
                 <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/20 text-red-400 text-xs">
                   {cloneError}
@@ -564,12 +646,12 @@ export default function OfertasPage() {
                   {isCloning ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Iniciando Clonagem...</span>
+                      <span>{crawlFullSite ? 'Rastreando Funil com HTTrack...' : 'Iniciando Clonagem...'}</span>
                     </>
                   ) : (
                     <>
                       <Play className="w-4 h-4 fill-current" />
-                      <span>Clonar Agora</span>
+                      <span>{crawlFullSite ? 'Iniciar com HTTrack' : 'Clonar Agora'}</span>
                     </>
                   )}
                 </button>

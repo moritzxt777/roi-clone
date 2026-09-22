@@ -110,30 +110,13 @@ export function EditorTopbar() {
 
   const [downloadingZip, setDownloadingZip] = useState(false);
 
-  const handleDownloadZip = async () => {
+  const handleDownloadZip = () => {
     setDownloadingZip(true);
-    try {
-      const subpagesToExport = availablePages
-        .filter((p) => p.id !== (pageId || cloneId))
-        .map((p) => ({
-          name: p.name,
-          slug: p.slug,
-          html: '',
-          css: '',
-        }));
-
-      await downloadSiteZip({
-        projectName: currentPageTitle || projectName || 'oferta-clonada',
-        html,
-        css,
-        subpages: subpagesToExport,
-      });
-    } catch (e) {
-      console.error('Falha ao gerar ZIP no cliente, acionando servidor:', e);
-      window.open(`/api/clones/${cloneId || pageId}/zip`, '_blank');
-    } finally {
-      setDownloadingZip(false);
+    const targetId = cloneId || pageId;
+    if (targetId) {
+      window.location.href = `/api/clones/${targetId}/zip`;
     }
+    setTimeout(() => setDownloadingZip(false), 2500);
   };
 
   const handleReload = () => {

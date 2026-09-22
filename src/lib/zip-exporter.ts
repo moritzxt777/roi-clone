@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 export interface SubpageZipData {
   name: string;
   slug?: string;
+  sourceUrl?: string;
   html: string;
   css?: string;
 }
@@ -165,7 +166,7 @@ function rewriteInternalLinks(
 ): string {
   let result = content;
 
-  // 1. Mapear rotas de subpáginas (/p/slug ou slugs diretos)
+  // 1. Mapear rotas de subpáginas (/p/slug ou slugs diretos ou URLs originais)
   subpages.forEach((sub, idx) => {
     const safeSlug = (sub.slug || sub.name || `pagina-${idx + 2}`)
       .toLowerCase()
@@ -177,15 +178,103 @@ function rewriteInternalLinks(
     // Rotas do ROI Clone (/p/slug)
     if (sub.slug) {
       result = result.replaceAll(`/p/${sub.slug}`, targetHtml);
+      result = result.replaceAll(`href="/p/${sub.slug}"`, `href="${targetHtml}"`);
+      result = result.replaceAll(`href="/p/${sub.slug}/"`, `href="${targetHtml}"`);
     }
+
+    // Se possui URL original de onde veio
+    if (sub.sourceUrl) {
+      result = result.replaceAll(`href="${sub.sourceUrl}"`, `href="${targetHtml}"`);
+      result = result.replaceAll(`href="${sub.sourceUrl}/"`, `href="${targetHtml}"`);
+      try {
+        const parsed = new URL(sub.sourceUrl);
+        if (parsed.pathname && parsed.pathname !== '/' && parsed.pathname.length > 1) {
+          const pathOnly = parsed.pathname;
+          result = result.replaceAll(`href="${pathOnly}"`, `href="${targetHtml}"`);
+          result = result.replaceAll(`href="${pathOnly}/"`, `href="${targetHtml}"`);
+          result = result.replaceAll(`href=".${pathOnly}"`, `href="${targetHtml}"`);
+          result = result.replaceAll(`href="${pathOnly.slice(1)}"`, `href="${targetHtml}"`);
+        }
+      } catch {}
+    }
+
     result = result.replaceAll(`href="/${safeSlug}"`, `href="${targetHtml}"`);
+    result = result.replaceAll(`href="/${safeSlug}.html"`, `href="${targetHtml}"`);
     result = result.replaceAll(`href="${safeSlug}"`, `href="${targetHtml}"`);
   });
 
   // 2. Links de retorno para a home
   result = result.replaceAll('href="/"', 'href="./index.html"');
+  result = result.replaceAll('href="/index.html"', 'href="./index.html"');
 
   return result;
+}
+
+/**
+ * Gera script leve de navegação interativa de funil para arquivos estáticos offline.
+ */
+function getFunnelNavScript(nextTarget?: string | null, prevTarget?: string | null): string {
+  if (!nextTarget && !prevTarget) return '';
+  return `
+<script>
+// ROI Clone — Interatividade e Navegação de Funil Offline
+(function() {
+  var nextUrl = ${nextTarget ? JSON.stringify(nextTarget) : 'null'};
+  var prevUrl = ${prevTarget ? JSON.stringify(prevTarget) : 'null'};
+
+  document.addEventListener('DOMContentLoaded', function() {
+    // 1. Interceptar cliques em opções de quiz, cards, botões de continuar e CTAs sem link externo
+    var selectors = [
+      'button:not([type="submit"])',
+      'button[type="button"]',
+      'a[href="#"]',
+      'a[href=""]',
+      'a[href^="javascript:"]',
+      'a:not([href])',
+      '[data-roi-next]',
+      '.quiz-option',
+      '.quiz-card',
+      '.option-card',
+      '.btn-next',
+      '.step-next',
+      '.next-step'
+    ];
+
+    document.querySelectorAll(selectors.join(',')).forEach(function(el) {
+      if (el.getAttribute('data-roi-funnel-bound')) return;
+      el.setAttribute('data-roi-funnel-bound', 'true');
+      el.style.cursor = 'pointer';
+
+      el.addEventListener('click', function(e) {
+        var href = el.getAttribute('href');
+        // Se for link externo real, deixa prosseguir normalmente
+        if (href && href !== '#' && href !== '' && !href.startsWith('javascript:') && !href.startsWith('./')) {
+          return;
+        }
+
+        if (nextUrl) {
+          e.preventDefault();
+          el.style.opacity = '0.7';
+          setTimeout(function() {
+            window.location.href = nextUrl;
+          }, 150);
+        }
+      });
+    });
+
+    // 2. Botões de voltar
+    if (prevUrl) {
+      document.querySelectorAll('.btn-prev, .step-prev, .prev-step, [data-roi-prev]').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.preventDefault();
+          window.location.href = prevUrl;
+        });
+      });
+    }
+  });
+})();
+</script>
+`;
 }
 
 export async function generateSiteZip(options: SiteZipOptions): Promise<JSZip> {
@@ -236,6 +325,19 @@ export async function generateSiteZip(options: SiteZipOptions): Promise<JSZip> {
   }
   mainHtml = rewriteInternalLinks(mainHtml, subpages);
 
+  if (subpages.length > 0) {
+    const firstSubSlug = (subpages[0].slug || subpages[0].name || 'pagina-2')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-');
+    const navScript = getFunnelNavScript(`./${firstSubSlug}.html`, null);
+    if (mainHtml.includes('</body>')) {
+      mainHtml = mainHtml.replace('</body>', `${navScript}\n</body>`);
+    } else {
+      mainHtml += navScript;
+    }
+  }
+
   if (!mainHtml.toLowerCase().includes('<!doctype html>')) {
     mainHtml = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -267,6 +369,26 @@ ${mainHtml}
       subHtml = rewriteAssetsInContent(subHtml, assetMap, false);
     }
     subHtml = rewriteInternalLinks(subHtml, subpages);
+
+    if (subpages.length > 0) {
+      const nextSub = subpages[idx + 1];
+      const prevSub = idx === 0 ? null : subpages[idx - 1];
+
+      const nextTarget = nextSub
+        ? `./${(nextSub.slug || nextSub.name || `pagina-${idx + 3}`).toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}.html`
+        : null;
+
+      const prevTarget = prevSub
+        ? `./${(prevSub.slug || prevSub.name || `pagina-${idx + 1}`).toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}.html`
+        : './index.html';
+
+      const navScript = getFunnelNavScript(nextTarget, prevTarget);
+      if (subHtml.includes('</body>')) {
+        subHtml = subHtml.replace('</body>', `${navScript}\n</body>`);
+      } else {
+        subHtml += navScript;
+      }
+    }
 
     if (!subHtml.toLowerCase().includes('<!doctype html>')) {
       subHtml = `<!DOCTYPE html>
