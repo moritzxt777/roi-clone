@@ -54,6 +54,8 @@ export const cloneSchema = z.object({
   newCheckoutUrl: optionalUrlPreprocess,
   pixKey: z.string().optional().or(z.literal('')),
   optimizeWithAi: z.boolean().optional(),
+  crawlFullSite: z.boolean().optional(),
+  maxPages: z.number().min(1).max(20).optional(),
 });
 
 export const updatePageSchema = z.object({

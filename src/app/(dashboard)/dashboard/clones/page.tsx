@@ -53,6 +53,8 @@ export default function ClonesManagementPage() {
   const [newCheckoutUrl, setNewCheckoutUrl] = useState('');
   const [pixKey, setPixKey] = useState('');
   const [isAiEnabled, setIsAiEnabled] = useState(true);
+  const [crawlFullSite, setCrawlFullSite] = useState(false);
+  const [maxPages, setMaxPages] = useState(6);
   const [isAnalyzingUrl, setIsAnalyzingUrl] = useState(false);
   const [aiSuggestionMsg, setAiSuggestionMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -152,6 +154,8 @@ export default function ClonesManagementPage() {
           newCheckoutUrl: newCheckoutUrl.trim() || undefined,
           pixKey: pixKey.trim() || undefined,
           optimizeWithAi: isAiEnabled,
+          crawlFullSite,
+          maxPages: crawlFullSite ? Number(maxPages) : undefined,
         }),
       });
 
@@ -507,6 +511,83 @@ export default function ClonesManagementPage() {
                 )}
               </div>
 
+              {/* Seletor de Modo de Clonagem: Rápido vs HTTrack Completo */}
+              <div>
+                <label className="text-xs font-medium text-neutral-300 block mb-2">
+                  Modo de Clonagem do Projeto
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setCrawlFullSite(false)}
+                    className={`p-3 rounded-xl border text-left transition-all relative ${
+                      !crawlFullSite
+                        ? 'bg-blue-600/10 border-blue-500/50 shadow-sm shadow-blue-500/10'
+                        : 'bg-[#151722] border-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Zap className={`w-4 h-4 ${!crawlFullSite ? 'text-blue-400' : 'text-neutral-400'}`} />
+                      <span className="text-xs font-bold text-white">Página Única (Rápido)</span>
+                    </div>
+                    <p className="text-[11px] text-neutral-400 leading-relaxed">
+                      Clona a Landing Page em ~5s. Ideal para testar ofertas e criar cópias imediatas.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCrawlFullSite(true)}
+                    className={`p-3 rounded-xl border text-left transition-all relative ${
+                      crawlFullSite
+                        ? 'bg-blue-600/10 border-blue-500/50 shadow-sm shadow-blue-500/10'
+                        : 'bg-[#151722] border-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Globe className={`w-4 h-4 ${crawlFullSite ? 'text-blue-400' : 'text-neutral-400'}`} />
+                        <span className="text-xs font-bold text-white">Site Completo & Funil com IA</span>
+                      </div>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-semibold uppercase">HTTrack</span>
+                    </div>
+                    <p className="text-[11px] text-neutral-400 leading-relaxed">
+                      Rastreia e clona subpáginas, checkout, carrinho, políticas, mídias locais e rotas internas.
+                    </p>
+                  </button>
+                </div>
+
+                {crawlFullSite && (
+                  <div className="mt-2.5 p-3 rounded-xl bg-blue-950/20 border border-blue-500/20 space-y-2 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-neutral-300 font-medium flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-blue-400" />
+                        Limite de páginas a clonar:
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {[4, 6, 8, 12].map((num) => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => setMaxPages(num)}
+                            className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-colors ${
+                              maxPages === num
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'bg-white/5 hover:bg-white/10 text-neutral-400'
+                            }`}
+                          >
+                            {num}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-neutral-400 leading-relaxed">
+                      💡 As páginas descobertas serão interligadas para navegação offline e empacotadas no arquivo ZIP com download de todas as imagens e backend de leads em PHP.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Nome do Projeto */}
               <div>
                 <label className="text-xs font-medium text-neutral-300 block mb-1.5">
@@ -612,11 +693,11 @@ export default function ClonesManagementPage() {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Clonando & Otimizando com IA...</span>
+                      <span>{crawlFullSite ? 'Clonando Site Completo & Funil...' : 'Clonando & Otimizando com IA...'}</span>
                     </>
                   ) : (
                     <>
-                      <span>Iniciar Clonagem</span>
+                      <span>{crawlFullSite ? 'Iniciar Clonagem Completa (HTTrack)' : 'Iniciar Clonagem'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </>
                   )}

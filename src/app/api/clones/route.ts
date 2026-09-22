@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { sourceUrl, name, newCheckoutUrl, pixKey, optimizeWithAi } = parsed.data;
+    const { sourceUrl, name, newCheckoutUrl, pixKey, optimizeWithAi, crawlFullSite, maxPages } = parsed.data;
 
     const clone = await prisma.clone.create({
       data: {
@@ -63,12 +63,12 @@ export async function POST(request: NextRequest) {
         action: 'CREATE_CLONE',
         entity: 'Clone',
         entityId: clone.id,
-        newData: { name, sourceUrl, newCheckoutUrl, pixKey, optimizeWithAi },
+        newData: { name, sourceUrl, newCheckoutUrl, pixKey, optimizeWithAi, crawlFullSite, maxPages },
       },
     });
 
     try {
-      await clonePage(clone.id, { newCheckoutUrl, pixKey, optimizeWithAi });
+      await clonePage(clone.id, { newCheckoutUrl, pixKey, optimizeWithAi, crawlFullSite, maxPages });
     } catch (err) {
       console.error('Clone processing error:', err);
     }

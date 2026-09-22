@@ -19,6 +19,8 @@ export interface CloneOptions {
   newCheckoutUrl?: string;
   pixKey?: string;
   optimizeWithAi?: boolean;
+  crawlFullSite?: boolean;
+  maxPages?: number;
 }
 
 export async function clonePage(cloneId: string, options?: CloneOptions): Promise<void> {
@@ -738,8 +740,11 @@ async function cloneWithCheerio(
     }
   }
 
-  // 13. Auto-Descoberta de Subpáginas do Funil (Página 2, Checkout, Upsell, Obrigado)
-  const subpagesMap = new Map<string, { title: string; url: string; slug: string }>();
+  // 13. Auto-Descoberta e Priorização de Subpáginas do Funil (Estilo HTTrack / Cyotek)
+  const funnelKeywords = /checkout|pay|carrinho|cart|comprar|pedido|order|oferta|upsell|downsell|obrigado|sucesso|thank-you|cardapio|produtos|catalogo|planos|precos|sobre|about|contato|contact|termos|politica|privacidade/i;
+  const ignoreKeywords = /wp-admin|wp-login|login|logout|cadastrar|register|admin|feed|xmlrpc|\.(pdf|zip|png|jpg|jpeg|webp|svg|mp4|mp3)$/i;
+
+  const subpagesMap = new Map<string, { title: string; url: string; slug: string; priority: number }>();
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href');
     const text = $(el).text()?.trim() || '';
@@ -755,23 +760,28 @@ async function cloneWithCheerio(
         if (
           full.origin === baseUrl.origin &&
           full.pathname !== '/' &&
-          full.pathname !== baseUrl.pathname
+          full.pathname !== baseUrl.pathname &&
+          !ignoreKeywords.test(full.pathname)
         ) {
           const cleanPath = full.pathname.replace(/^\/|\/$/g, '');
           if (cleanPath && !cleanPath.includes('.') && !subpagesMap.has(full.href)) {
             let pageTitle = text || `Página /${cleanPath}`;
             if (pageTitle.length > 40) pageTitle = `Página /${cleanPath}`;
+            const priority = funnelKeywords.test(full.pathname) || funnelKeywords.test(text) ? 100 : 10;
             subpagesMap.set(full.href, {
               title: pageTitle,
               url: full.href,
               slug: cleanPath,
+              priority,
             });
           }
         }
       } catch {}
     }
   });
-  const discoveredSubpages = Array.from(subpagesMap.values()).slice(0, 15);
+
+  const sortedDiscoveredSubpages = Array.from(subpagesMap.values()).sort((a, b) => b.priority - a.priority);
+  const discoveredSubpages = sortedDiscoveredSubpages.slice(0, 15).map(({ title, url, slug }) => ({ title, url, slug }));
 
   // 14. Auto-Descoberta de Pixels e Códigos de Rastreamento
   const pageHtmlString = rawHtml;
@@ -886,7 +896,7 @@ async function cloneWithCheerio(
 
   const bodyElem = $('body').get(0);
   const domTree = bodyElem ? parseCheerioNode(bodyElem, 'body') : null;
-  const cleanFinalHtml = $.html();
+  let cleanFinalHtml = $.html();
 
   // 17. Cria o registro de Page no banco de dados com metadados enriquecidos
   const slug =
@@ -953,6 +963,239 @@ async function cloneWithCheerio(
 
   if (domTree) {
     await saveNode(domTree);
+  }
+
+  // 17.5. Modo Site Completo & Funil com IA (Estilo HTTrack / Cyotek WebCopy)
+  if (options?.crawlFullSite && sortedDiscoveredSubpages.length > 0) {
+    const maxPagesToCrawl = Math.min(options.maxPages || 6, sortedDiscoveredSubpages.length);
+    const pagesToCrawl = sortedDiscoveredSubpages.slice(0, maxPagesToCrawl);
+
+    console.log(`[Cloner] Modo HTTrack ativado: Rastreando recursivamente ${pagesToCrawl.length} páginas do funil...`);
+
+    const subpageDocs: Array<{
+      recordId: string;
+      $: cheerio.CheerioAPI;
+      url: string;
+      path: string;
+      slug: string;
+      name: string;
+    }> = [];
+
+    const clonedSubpagesList: Array<{
+      id: string;
+      name: string;
+      slug: string;
+      url: string;
+      cloned: boolean;
+    }> = [];
+
+    for (let i = 0; i < pagesToCrawl.length; i++) {
+      const subItem = pagesToCrawl[i];
+      const crawlProgress = 75 + Math.round(((i + 1) / pagesToCrawl.length) * 18);
+      try {
+        await prisma.clone.update({
+          where: { id: cloneId },
+          data: { progress: crawlProgress },
+        });
+
+        console.log(`[Cloner] Baixando subpágina (${i + 1}/${pagesToCrawl.length}): ${subItem.title} -> ${subItem.url}`);
+        const subFetch = await fetchWithMultiTier(subItem.url);
+        if (subFetch.html && subFetch.html.length > 200) {
+          const $sub = cheerio.load(subFetch.html);
+          const subBaseUrl = new URL(subFetch.finalUrl || subItem.url);
+
+          // Injetar base tag
+          if ($sub('head').length > 0) {
+            $sub('head').prepend(`<base href="${subBaseUrl.origin}/">`);
+          } else {
+            $sub('html').prepend(`<head><base href="${subBaseUrl.origin}/"></head>`);
+          }
+
+          // Neutralizar preloaders
+          $sub('#preloader, .preloader, #loading, .loading-screen, .elementor-loader, .elementor-loading, .page-loader').remove();
+          $sub('head').append(antiBlankShield);
+
+          // Resolver links, imagens, CSS
+          $sub('link').each((_, el) => {
+            const h = $sub(el).attr('href');
+            if (h) {
+              try { $sub(el).attr('href', new URL(h, subBaseUrl.href).href); } catch {}
+            }
+          });
+
+          $sub('img').each((_, el) => {
+            const s = $sub(el).attr('src');
+            if (s) {
+              try { $sub(el).attr('src', new URL(s, subBaseUrl.href).href); } catch {}
+            }
+            const ds = $sub(el).attr('data-src') || $sub(el).attr('data-original');
+            if (ds) {
+              try {
+                const absDs = new URL(ds, subBaseUrl.href).href;
+                $sub(el).attr('data-src', absDs);
+                $sub(el).attr('src', absDs);
+              } catch {}
+            }
+            $sub(el).attr('loading', 'eager');
+          });
+
+          // Neutralizar scripts invasivos
+          $sub('script').each((_, el) => {
+            const s = $sub(el).attr('src') || '';
+            const c = $sub(el).html() || '';
+            if (s.includes('utmify') || s.includes('fbevents') || c.includes('top.location') || c.includes('debugger')) {
+              $sub(el).remove();
+            }
+          });
+
+          // Substituir Checkout se configurado
+          if (options?.newCheckoutUrl) {
+            $sub('a').each((_, el) => {
+              const h = $sub(el).attr('href') || '';
+              const txt = $sub(el).text() || '';
+              if (checkoutKeywords.test(h) || checkoutKeywords.test(txt)) {
+                $sub(el).attr('href', options.newCheckoutUrl!);
+                $sub(el).attr('target', '_blank');
+              }
+            });
+          }
+
+          // Injetar modal PIX se configurado
+          if (options?.pixKey) {
+            const safePixKey = options.pixKey.replace(/[^a-zA-Z0-9@._-]/g, '');
+            const pixModalHtml = `
+            <div id="roi-pix-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);z-index:999999;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;">
+              <div style="background:#0d0e14;border:1px solid rgba(255,255,255,0.15);border-radius:24px;padding:32px;max-width:400px;width:90%;text-align:center;color:#fff;box-shadow:0 25px 50px -12px rgba(0,0,0,0.7);position:relative;">
+                <button onclick="document.getElementById('roi-pix-modal').style.display='none'" style="position:absolute;top:16px;right:16px;background:none;border:none;color:#888;font-size:18px;cursor:pointer;">✕</button>
+                <div style="width:48px;height:48px;border-radius:12px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#10b981;font-weight:bold;font-size:22px;">⚡</div>
+                <h3 style="margin:0 0 8px;font-size:18px;font-weight:bold;">Pagamento Instantâneo PIX</h3>
+                <p style="margin:0 0 16px;color:#aaa;font-size:12px;">Escaneie o QR Code ou copie a chave abaixo para liberação imediata:</p>
+                <div style="background:#fff;padding:12px;border-radius:16px;display:inline-block;margin-bottom:16px;">
+                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(safePixKey)}" alt="QR Code Pix" style="display:block;width:180px;height:180px;" />
+                </div>
+                <div style="background:#151722;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;text-align:left;">
+                  <span style="font-size:11px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px;">${safePixKey}</span>
+                  <button onclick="navigator.clipboard.writeText('${safePixKey}');alert('Chave Pix copiada!')" style="background:#2563eb;color:#fff;border:none;padding:6px 12px;border-radius:8px;font-size:11px;font-weight:bold;cursor:pointer;margin-left:8px;">Copiar</button>
+                </div>
+                <p style="margin:0;color:#666;font-size:11px;">Acesso liberado instantaneamente após o pagamento</p>
+              </div>
+            </div>
+            `;
+            $sub('body').append(pixModalHtml);
+          }
+
+          // Extrair estilos CSS da subpágina
+          let subCss = '';
+          $sub('style').each((_, el) => {
+            const st = $sub(el).html() || '';
+            subCss += rewriteCssUrls(st, subBaseUrl) + '\n';
+          });
+
+          // Gerar slug seguro para a subpágina
+          const subSlug = `${slug}-${subItem.slug}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').slice(0, 60);
+
+          const subRecord = await prisma.page.create({
+            data: {
+              name: subItem.title,
+              slug: subSlug,
+              userId: clone.userId,
+              sourceUrl: subItem.url,
+              html: $sub.html(),
+              css: subCss,
+              js: '',
+              meta: {
+                parentCloneId: clone.id,
+                parentPageId: pageRecord.id,
+                isSubpage: true,
+                sourceUrl: subItem.url,
+              },
+              status: 'DRAFT',
+            },
+          });
+
+          subpageDocs.push({
+            recordId: subRecord.id,
+            $: $sub,
+            url: subItem.url,
+            path: new URL(subItem.url).pathname,
+            slug: subSlug,
+            name: subItem.title,
+          });
+
+          clonedSubpagesList.push({
+            id: subRecord.id,
+            name: subItem.title,
+            slug: subSlug,
+            url: subItem.url,
+            cloned: true,
+          });
+        }
+      } catch (subErr: any) {
+        console.warn(`[Cloner] Falha ao clonar subpágina ${subItem.url}:`, subErr?.message || subErr);
+      }
+    }
+
+    // Reescrita de Links Internos entre a Página Principal e todas as Subpáginas
+    if (subpageDocs.length > 0) {
+      console.log(`[Cloner] Reeescrevendo links internos entre as ${subpageDocs.length + 1} páginas do funil...`);
+
+      const rewriteLinksInCheerio = ($doc: cheerio.CheerioAPI) => {
+        $doc('a[href]').each((_, el) => {
+          const href = $doc(el).attr('href');
+          if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('tel:') || href.startsWith('mailto:')) {
+            return;
+          }
+
+          // Verifica se aponta para uma das subpáginas clonadas
+          for (const sub of subpageDocs) {
+            const cleanSubPath = sub.path.replace(/\/$/, '');
+            if (
+              href === sub.url ||
+              href === sub.path ||
+              href === cleanSubPath ||
+              href.endsWith(sub.path) ||
+              href.endsWith(cleanSubPath)
+            ) {
+              $doc(el).attr('href', `/p/${sub.slug}`);
+              $doc(el).attr('data-roi-subpage-slug', sub.slug);
+              $doc(el).attr('data-roi-original-url', sub.url);
+              break;
+            }
+          }
+
+          // Se aponta para a raiz/home
+          if (href === '/' || href === baseUrl.origin || href === `${baseUrl.origin}/` || href === baseUrl.href) {
+            $doc(el).attr('href', `/p/${slug}`);
+            $doc(el).attr('data-roi-subpage-slug', slug);
+          }
+        });
+      };
+
+      // 1. Reescreve na página principal
+      rewriteLinksInCheerio($);
+      cleanFinalHtml = $.html();
+
+      // 2. Reescreve em cada subpágina e atualiza no banco de dados
+      for (const sub of subpageDocs) {
+        rewriteLinksInCheerio(sub.$);
+        await prisma.page.update({
+          where: { id: sub.recordId },
+          data: { html: sub.$.html() },
+        });
+      }
+
+      // 3. Atualiza os metadados e HTML da página principal
+      await prisma.page.update({
+        where: { id: pageRecord.id },
+        data: {
+          html: cleanFinalHtml,
+          meta: {
+            ...pageMeta,
+            subpages: clonedSubpagesList,
+          },
+        },
+      });
+    }
   }
 
   // 18. IA Assistente: Gerar sugestão inicial automática de alta conversão

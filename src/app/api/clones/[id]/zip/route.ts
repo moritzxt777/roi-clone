@@ -32,13 +32,22 @@ export async function GET(
       mainHtml = clone.page?.html || clone.resultHtml || '';
       mainCss = clone.page?.css || clone.resultCss || '';
 
-      // Buscar outras subpáginas do mesmo usuário
+      // Buscar subpáginas vinculadas ao projeto/clone
+      const pageMeta = (clone.page?.meta as any) || {};
+      const linkedSubpageIds: string[] = [];
+      if (Array.isArray(pageMeta.subpages)) {
+        pageMeta.subpages.forEach((s: any) => {
+          if (s.id) linkedSubpageIds.push(s.id);
+        });
+      }
+
       const relatedPages = await prisma.page.findMany({
         where: {
           userId: session.user.id,
           id: { not: clone.pageId || '' },
+          ...(linkedSubpageIds.length > 0 ? { id: { in: linkedSubpageIds } } : {}),
         },
-        take: 10,
+        take: 15,
       });
 
       relatedPages.forEach((p) => {
@@ -62,6 +71,32 @@ export async function GET(
       projectName = page.name;
       mainHtml = page.html;
       mainCss = page.css;
+
+      // Buscar subpáginas da página
+      const pageMeta = (page.meta as any) || {};
+      const linkedSubpageIds: string[] = [];
+      if (Array.isArray(pageMeta.subpages)) {
+        pageMeta.subpages.forEach((s: any) => {
+          if (s.id) linkedSubpageIds.push(s.id);
+        });
+      }
+
+      if (linkedSubpageIds.length > 0) {
+        const related = await prisma.page.findMany({
+          where: {
+            userId: session.user.id,
+            id: { in: linkedSubpageIds },
+          },
+        });
+        related.forEach((p) => {
+          subpages.push({
+            name: p.name,
+            slug: p.slug,
+            html: p.html,
+            css: p.css,
+          });
+        });
+      }
     }
 
     const zip = await generateSiteZip({
