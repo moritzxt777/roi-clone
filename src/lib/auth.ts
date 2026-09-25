@@ -141,9 +141,26 @@ const nextAuth = NextAuth({
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).id = token.id as string;
-        const isMaster = session.user.email?.toLowerCase() === 'moritzadmin777roi@gmail.com';
-        (session.user as any).role = isMaster ? 'SUPER_ADMIN' : ((token.role as string) || 'USER');
+        let userId = token.id as string;
+        let userRole = (token.role as string) || 'USER';
+
+        if (session.user.email) {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: session.user.email.toLowerCase() },
+            select: { id: true, role: true },
+          }).catch(() => null);
+
+          if (dbUser) {
+            userId = dbUser.id;
+            userRole = dbUser.role;
+          }
+        }
+
+        (session.user as any).id = userId;
+        const isMaster =
+          session.user.email?.toLowerCase() === 'moritzadmin777roi@gmail.com' ||
+          session.user.email?.toLowerCase() === 'moritzdoblack@proton.me';
+        (session.user as any).role = isMaster ? 'ADMIN' : userRole;
       }
       return session;
     },

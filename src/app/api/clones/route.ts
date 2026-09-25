@@ -14,8 +14,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
+    let targetUserId = session.user.id;
+    if (session.user.email) {
+      const dbUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            ...(targetUserId ? [{ id: targetUserId }] : []),
+            { email: session.user.email.toLowerCase() },
+          ],
+        },
+        select: { id: true },
+      });
+      if (dbUser) targetUserId = dbUser.id;
+    }
+
     const clones = await prisma.clone.findMany({
-      where: { userId: session.user.id },
+      where: { userId: targetUserId },
       include: {
         page: { select: { id: true, name: true, slug: true, domainId: true } },
       },
@@ -48,18 +62,34 @@ export async function POST(request: NextRequest) {
 
     const { sourceUrl, name, newCheckoutUrl, pixKey, optimizeWithAi, crawlFullSite, maxPages } = parsed.data;
 
+    let targetUserId = session.user.id;
+    if (session.user.email) {
+      const dbUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            ...(targetUserId ? [{ id: targetUserId }] : []),
+            { email: session.user.email.toLowerCase() },
+          ],
+        },
+        select: { id: true },
+      });
+      if (dbUser) {
+        targetUserId = dbUser.id;
+      }
+    }
+
     const clone = await prisma.clone.create({
       data: {
         name,
         sourceUrl,
-        userId: session.user.id,
+        userId: targetUserId,
         status: 'PENDING',
       },
     });
 
     await prisma.auditLog.create({
       data: {
-        userId: session.user.id,
+        userId: targetUserId,
         action: 'CREATE_CLONE',
         entity: 'Clone',
         entityId: clone.id,
