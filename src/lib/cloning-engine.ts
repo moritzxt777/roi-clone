@@ -47,49 +47,53 @@ async function mirrorPageAssets(
     const report = await mirrorAssets(
       { pageId, appOrigin: input.appOrigin, html: input.html, css: input.css },
       async (asset, bytes) => {
-        if (asset.status !== 'READY') {
-          // A failed mirror is still worth recording: it explains a missing image
-          // later instead of leaving a silent gap.
+        try {
+          if (asset.status !== 'READY') {
+            await prisma.cloneAsset.upsert({
+              where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
+              create: {
+                pageId,
+                sourceUrl: asset.sourceUrl,
+                storageKey: asset.storageKey || `failed-${Buffer.from(asset.sourceUrl).toString('base64url').slice(0, 40)}`,
+                contentType: asset.contentType,
+                size: asset.size,
+                checksum: asset.checksum,
+                status: asset.status,
+                error: asset.error,
+                data: toPrismaBytes(bytes),
+              },
+              update: { status: asset.status, error: asset.error, size: asset.size },
+            });
+            return;
+          }
+
           await prisma.cloneAsset.upsert({
             where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
             create: {
               pageId,
               sourceUrl: asset.sourceUrl,
-              storageKey: asset.storageKey || `failed-${Buffer.from(asset.sourceUrl).toString('base64url').slice(0, 40)}`,
+              storageKey: asset.storageKey,
               contentType: asset.contentType,
               size: asset.size,
               checksum: asset.checksum,
-              status: asset.status,
-              error: asset.error,
+              status: 'READY',
               data: toPrismaBytes(bytes),
             },
-            update: { status: asset.status, error: asset.error, size: asset.size },
+            update: {
+              storageKey: asset.storageKey,
+              contentType: asset.contentType,
+              size: asset.size,
+              checksum: asset.checksum,
+              status: 'READY',
+              error: null,
+              data: toPrismaBytes(bytes),
+            },
           });
-          return;
+        } catch (err: any) {
+          // If the unique constraint on (pageId, storageKey) triggers, the asset is already saved
+          if (err?.code === 'P2002') return;
+          console.warn('[Cloner] Asset store notice:', err?.message || err);
         }
-
-        await prisma.cloneAsset.upsert({
-          where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
-          create: {
-            pageId,
-            sourceUrl: asset.sourceUrl,
-            storageKey: asset.storageKey,
-            contentType: asset.contentType,
-            size: asset.size,
-            checksum: asset.checksum,
-            status: 'READY',
-            data: toPrismaBytes(bytes),
-          },
-          update: {
-            storageKey: asset.storageKey,
-            contentType: asset.contentType,
-            size: asset.size,
-            checksum: asset.checksum,
-            status: 'READY',
-            error: null,
-            data: toPrismaBytes(bytes),
-          },
-        });
       }
     );
 

@@ -8,9 +8,23 @@ export default async function ProjetoEditorPage(props: { params: Promise<{ id: s
   const session = await auth();
   if (!session?.user) redirect('/login');
 
-  const editorData = await getEditorData(params.id, session.user.id);
+  let targetUserId = session.user.id;
+  if (session.user.email) {
+    const dbUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          ...(targetUserId ? [{ id: targetUserId }] : []),
+          { email: session.user.email.toLowerCase() },
+        ],
+      },
+      select: { id: true },
+    });
+    if (dbUser) targetUserId = dbUser.id;
+  }
+
+  const editorData = await getEditorData(params.id, targetUserId);
   if (!editorData) {
-    redirect('/dashboard');
+    redirect('/dashboard/clones');
   }
 
   return (

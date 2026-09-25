@@ -47,10 +47,12 @@ export default function CloneProgressPage() {
         }
         
         if (data.status === 'COMPLETED') {
+          setProgress(100);
+          setStatus('Clonagem concluída com sucesso!');
           clearInterval(interval);
           setTimeout(() => {
-            router.push(`/dashboard/projeto/${id}`);
-          }, 1000);
+            window.location.href = `/dashboard/projeto/${id}`;
+          }, 1200);
         }
       } catch (err) {
         console.error(err);
@@ -93,17 +95,19 @@ export default function CloneProgressPage() {
 
             <div className="space-y-2">
               <h1 className="text-xl font-bold tracking-tight text-white">
-                {progress >= 100 ? 'Quase pronto!' : 'Clonando Página'}
+                {progress >= 100 ? 'Pronto para editar!' : 'Clonando Página'}
               </h1>
               <p className="text-xs text-neutral-400">
-                Nosso motor inteligente está baixando elementos, estilos e imagens.
+                {progress >= 100 
+                  ? 'Todos os elementos, estilos e mídias foram processados com sucesso.'
+                  : 'Nosso motor inteligente está baixando elementos, estilos e imagens.'}
               </p>
             </div>
             
             <div className="space-y-2 pt-2">
               <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-white/10">
                 <div 
-                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-500 ease-out rounded-full"
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-emerald-400 transition-all duration-500 ease-out rounded-full"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -113,6 +117,15 @@ export default function CloneProgressPage() {
                 <span className="font-mono text-blue-400 shrink-0">{progress}%</span>
               </div>
             </div>
+
+            {progress >= 100 && (
+              <button
+                onClick={() => { window.location.href = `/dashboard/projeto/${id}`; }}
+                className="w-full mt-4 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all cursor-pointer"
+              >
+                Abrir no Editor Visual →
+              </button>
+            )}
           </div>
         )}
       </div>
