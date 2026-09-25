@@ -72,6 +72,27 @@ export async function clonePage(cloneId: string, options?: CloneOptions): Promis
   }
 }
 
+const RESIDENTIAL_IPS = [
+  '187.32.14.50',
+  '177.136.242.18',
+  '189.40.72.112',
+  '201.86.150.94',
+  '179.184.210.65',
+  '186.232.19.12',
+];
+
+function getRandomResidentialHeaders(): Record<string, string> {
+  const ip = RESIDENTIAL_IPS[Math.floor(Math.random() * RESIDENTIAL_IPS.length)];
+  return {
+    'X-Forwarded-For': ip,
+    'CF-Connecting-IP': ip,
+    'X-Real-IP': ip,
+    'Client-IP': ip,
+    'Referer': 'https://www.google.com.br/',
+    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+  };
+}
+
 /**
  * 1. Fetch Multi-Tier de Alta Fidelidade (Anti-Bloqueio / Anti-Bot)
  */
@@ -84,7 +105,6 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         Accept:
           'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
         'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': '"Windows"',
@@ -93,6 +113,7 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-User': '?1',
         'Upgrade-Insecure-Requests': '1',
+        ...getRandomResidentialHeaders(),
       },
     },
     {
@@ -101,10 +122,10 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
         'User-Agent':
           'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
+        ...getRandomResidentialHeaders(),
       },
     },
     {
@@ -112,7 +133,7 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
       headers: {
         'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
         Accept: '*/*',
-        'Accept-Language': 'pt-BR,pt;q=0.9',
+        ...getRandomResidentialHeaders(),
       },
     },
   ];
@@ -133,7 +154,9 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
         const isCfBlock =
           res.data.includes('cf-browser-verification') ||
           res.data.includes('Just a moment...') ||
-          res.data.includes('Attention Required! | Cloudflare');
+          res.data.includes('Attention Required! | Cloudflare') ||
+          res.data.includes('403 - Forbidden') ||
+          res.data.includes('Access to this page is forbidden');
         if (!isCfBlock) {
           const finalUrl = res.request?.res?.responseUrl || targetUrl;
           return { html: res.data, finalUrl };
@@ -257,7 +280,11 @@ async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise
   // Método A: API REST WordPress (/wp-json/wp/v2/pages)
   try {
     const wpApiUrl = new URL('/wp-json/wp/v2/pages?per_page=50', baseUrl.origin).href;
-    const wpRes = await axios.get(wpApiUrl, { timeout: 7000, validateStatus: () => true });
+    const wpRes = await axios.get(wpApiUrl, {
+      timeout: 7000,
+      headers: getRandomResidentialHeaders(),
+      validateStatus: () => true,
+    });
     if (Array.isArray(wpRes.data) && wpRes.data.length > 0) {
       const bestPage =
         wpRes.data.find(
@@ -281,7 +308,11 @@ async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise
   for (const smPath of sitemapCandidates) {
     try {
       const smUrl = new URL(smPath, baseUrl.origin).href;
-      const smRes = await axios.get(smUrl, { timeout: 6000, validateStatus: () => true });
+      const smRes = await axios.get(smUrl, {
+        timeout: 6000,
+        headers: getRandomResidentialHeaders(),
+        validateStatus: () => true,
+      });
       if (typeof smRes.data === 'string' && smRes.data.includes('<loc>')) {
         const matches = Array.from(smRes.data.matchAll(/<loc>(https?:\/\/[^<]+)<\/loc>/gi)).map((m) => m[1]);
         const bestUrl = matches.find((u) => priorityKeywords.test(u) && u !== baseUrl.href && u !== `${baseUrl.origin}/`);
@@ -355,6 +386,7 @@ async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise
           headers: {
             'User-Agent':
               'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+            ...getRandomResidentialHeaders(),
           },
           maxRedirects: 3,
           validateStatus: (s) => s === 200,
@@ -709,6 +741,7 @@ async function cloneWithCheerio(
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          ...getRandomResidentialHeaders(),
         },
       });
       if (typeof cssRes.data === 'string') {
@@ -1330,10 +1363,12 @@ async function cloneWithPlaywright(
       });
 
   try {
+    const residentialHeaders = getRandomResidentialHeaders();
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      extraHTTPHeaders: residentialHeaders,
     });
     const page = await context.newPage();
 
@@ -1346,7 +1381,35 @@ async function cloneWithPlaywright(
       }
     });
 
-    await page.goto(targetUrl, { waitUntil: 'load', timeout: 20000 });
+    const response = await page.goto(targetUrl, { waitUntil: 'load', timeout: 25000 });
+    const status = response?.status() || 200;
+    const bodyText = (await page.textContent('body')) || '';
+    const isBlocked =
+      status === 403 ||
+      status === 401 ||
+      bodyText.includes('403 - Forbidden') ||
+      bodyText.includes('Access to this page is forbidden') ||
+      bodyText.includes('Attention Required! | Cloudflare') ||
+      bodyText.includes('cf-browser-verification');
+
+    if (isBlocked) {
+      console.warn(`[Cloner] Playwright detectou bloqueio/cloaker (status ${status}). Tentando perfil alternativo iPhone...`);
+      await page.setExtraHTTPHeaders({
+        ...getRandomResidentialHeaders(),
+        Referer: 'https://www.google.com.br/',
+      });
+      const retryResponse = await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      const retryStatus = retryResponse?.status() || 200;
+      const retryBody = (await page.textContent('body')) || '';
+      if (
+        retryStatus === 403 ||
+        retryStatus === 401 ||
+        retryBody.includes('403 - Forbidden') ||
+        retryBody.includes('Access to this page is forbidden')
+      ) {
+        throw new Error(`Página de destino bloqueou acesso anti-bot/datacenter (${retryStatus}). Acionando motor Cheerio Multi-Tier.`);
+      }
+    }
 
     await prisma.clone.update({
       where: { id: cloneId },
