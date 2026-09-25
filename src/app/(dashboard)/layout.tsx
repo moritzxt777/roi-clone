@@ -103,7 +103,7 @@ export default function DashboardLayout({
 
   const userEmail = session?.user?.email?.toLowerCase();
   const userRole = (session?.user as any)?.role;
-  const isSuperAdmin = userEmail === 'moritzadmin777roi@gmail.com' || userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+  const isSuperAdmin = userEmail === 'moritzadmin777roi@gmail.com' || userEmail === 'moritzdoblack@proton.me' || userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
 
   const navItems = isSuperAdmin
     ? [

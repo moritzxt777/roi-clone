@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const ADMIN_AUTHORIZED_EMAIL = 'moritzadmin777roi@gmail.com';
+const ADMIN_EMAILS = ['moritzadmin777roi@gmail.com', 'moritzdoblack@proton.me'];
 
 const adminNav = [
   { name: 'Visão Geral', href: '/moritzadmin171roi', icon: Activity },
@@ -40,7 +40,7 @@ export default function MoritzAdminLayout({
     } else if (status === 'authenticated') {
       const email = session?.user?.email?.toLowerCase();
       const role = (session?.user as any)?.role;
-      const isAuthorized = email === ADMIN_AUTHORIZED_EMAIL || role === 'SUPER_ADMIN' || role === 'ADMIN';
+      const isAuthorized = ADMIN_EMAILS.includes(email || '') || role === 'SUPER_ADMIN' || role === 'ADMIN';
       if (!isAuthorized) {
         router.push('/dashboard');
       }
@@ -60,7 +60,7 @@ export default function MoritzAdminLayout({
 
   const role = (session?.user as any)?.role;
   const email = session?.user?.email?.toLowerCase();
-  const isAuthorized = email === ADMIN_AUTHORIZED_EMAIL || role === 'SUPER_ADMIN' || role === 'ADMIN';
+  const isAuthorized = ADMIN_EMAILS.includes(email || '') || role === 'SUPER_ADMIN' || role === 'ADMIN';
 
   if (!session || !isAuthorized) {
     return (
