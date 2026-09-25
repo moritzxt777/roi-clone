@@ -116,6 +116,23 @@ export async function GET(
           },
         },
       }).catch(() => {});
+
+      // Se for uma oferta externa (não clonada no ROI Clone)
+      if (cloakerConfig.blackPageUrl) {
+        if (cloakerConfig.blackAction === 'iframe') {
+          const iframeHtml = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><title>${page?.name || 'Oferta Oficial'}</title><style>html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#fff; } iframe { border:none; width:100%; height:100%; display:block; }</style></head><body><iframe src="${cloakerConfig.blackPageUrl}" allow="payment; autoplay; fullscreen" sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-top-navigation"></iframe></body></html>`;
+          return new NextResponse(iframeHtml, {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'no-store, max-age=0',
+            },
+          });
+        }
+
+        // Redirecionamento 302 para a oferta externa
+        return NextResponse.redirect(cloakerConfig.blackPageUrl, 302);
+      }
     }
   }
 

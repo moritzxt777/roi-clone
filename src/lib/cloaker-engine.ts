@@ -8,6 +8,9 @@ import { NextRequest } from 'next/server';
 
 export interface CloakerConfig {
   enabled: boolean;
+  isExternalOffer?: boolean;
+  blackPageUrl?: string;
+  blackAction?: 'redirect' | 'iframe';
   whitePageUrl?: string;
   whitePageHtml?: string;
   filterBots: boolean;
@@ -20,6 +23,7 @@ export interface CloakerConfig {
     blackHits: number;
     whiteHits: number;
     lastHitAt?: string;
+    lastBlockedReason?: string;
   };
 }
 
@@ -240,7 +244,10 @@ export function evaluateCloaker(
 }
 
 export const DEFAULT_CLOAKER_CONFIG: CloakerConfig = {
-  enabled: false,
+  enabled: true,
+  isExternalOffer: false,
+  blackPageUrl: '',
+  blackAction: 'redirect',
   whitePageUrl: '',
   whitePageHtml: '',
   filterBots: true,
