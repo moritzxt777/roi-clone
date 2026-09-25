@@ -19,6 +19,11 @@ import { cn } from '@/lib/utils';
 
 const ADMIN_EMAILS = ['moritzadmin777roi@gmail.com', 'moritzdoblack@proton.me'];
 
+// The badge below rendered `{ADMIN_AUTHORIZED_EMAIL}`, an identifier declared
+// only in sibling files and never imported here. That is a ReferenceError during
+// render, so the whole admin layout failed to mount.
+const ADMIN_AUTHORIZED_EMAIL = ADMIN_EMAILS[0];
+
 const adminNav = [
   { name: 'Visão Geral', href: '/moritzadmin171roi', icon: Activity },
   { name: 'Gestão de Usuários', href: '/moritzadmin171roi/users', icon: Users },

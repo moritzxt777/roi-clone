@@ -144,11 +144,30 @@ model Page {
   components       PageComponent[]
   aiSuggestions    AISuggestion[]
   formSubmissions  FormSubmission[]
+  cloakerMetric    CloakerMetric?
 
   @@unique([domainId, slug])
   @@index([userId])
   @@index([domainId])
   @@index([status])
+}
+
+// Counters live in scalar columns so a hit is one atomic database increment.
+// They previously lived inside Page.meta, which forced a read-modify-write of
+// the whole JSON blob on every request: concurrent hits lost increments, and a
+// crawler that read an old config overwrote a config the user had just saved.
+model CloakerMetric {
+  pageId            String    @id
+  page              Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  totalHits         Int       @default(0)
+  blackHits         Int       @default(0)
+  whiteHits         Int       @default(0)
+  lastHitAt         DateTime?
+  lastBlockedReason String?
+  lastBlockedVerdict String?
+  updatedAt         DateTime  @updatedAt
+
+  @@index([lastHitAt])
 }
 
 model PageElement {
