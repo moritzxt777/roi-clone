@@ -1,4 +1,4 @@
-import NextAuth from 'next-auth';
+import NextAuth, { type Session } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import DiscordProvider from 'next-auth/providers/discord';
 import { PrismaAdapter } from '@auth/prisma-adapter';
@@ -11,7 +11,7 @@ const loginSchema = z.object({
   password: z.string().min(8, 'Senha deve ter pelo menos 8 caracteres'),
 });
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const nextAuth = NextAuth({
   trustHost: true,
   adapter: PrismaAdapter(prisma),
   session: {
@@ -180,6 +180,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   debug: process.env.NODE_ENV === 'development',
 });
+
+export const { handlers, auth, signIn, signOut } = nextAuth;
+
+/**
+ * Reads the current session inside a route handler.
+ *
+ * `auth` has two call shapes and the published types cover neither: route
+ * handlers call it with no arguments, `proxy.ts` calls it with a middleware
+ * wrapper. The library's overloads resolve to the middleware signature only, so
+ * `auth()` in a route handler is a type error — "Expected 2-3 arguments, but got
+ * 1" — and `next build` had build errors ignored, so it went unseen in every
+ * API route.
+ *
+ * `auth` is left exactly as NextAuth exports it, because re-typing it breaks the
+ * middleware request augmentation that `proxy.ts` depends on. This wrapper gives
+ * route handlers a correctly-typed way in instead, and the call sites can be
+ * migrated one at a time.
+ */
+export function getSession(): Promise<Session | null> {
+  return (nextAuth.auth as unknown as () => Promise<Session | null>)();
+}
 
 declare module 'next-auth' {
   interface Session {

@@ -1,6 +1,8 @@
 import prisma from '@/lib/prisma';
 import { sanitizeHtml } from '@/lib/validations';
 import { validateUrl } from './security/url-validator';
+import { wireCloneForms } from './clone-forms';
+import { getAppUrl } from './url';
 import * as cheerio from 'cheerio';
 import axios from 'axios';
 
@@ -72,31 +74,70 @@ export async function clonePage(cloneId: string, options?: CloneOptions): Promis
   }
 }
 
-const RESIDENTIAL_IPS = [
-  '187.32.14.50',
-  '177.136.242.18',
-  '189.40.72.112',
-  '201.86.150.94',
-  '179.184.210.65',
-  '186.232.19.12',
-];
+/**
+ * Per-UA header variations.
+ *
+ * The previous implementation also sent a hardcoded list of six "residential"
+ * IPs in `X-Forwarded-For`, `CF-Connecting-IP`, `X-Real-IP` and `Client-IP`. That
+ * was not a proxy: those are just header values, and any site that resolves the
+ * real socket peer — which is every Cloudflare-fronted host and every WAF — sees
+ * the datacenter IP this process is actually running from. It only worked against
+ * hosts that trust a client-supplied header blindly, and a fixed pool of six
+ * addresses is trivially fingerprinted and blocked within minutes.
+ *
+ * What remains is the part that is actually legitimate: a coherent browser
+ * fingerprint. A User-Agent has to agree with its own `Sec-Ch-Ua` value, its
+ * `Sec-Fetch-*` set and its `Accept` header, because inconsistency is a stronger
+ * bot signal than any single header.
+ *
+ * If residential egress is actually needed, set `CLONE_PROXY_URL` and the
+ * request goes through a real proxy — which is the only thing that changes the
+ * address the origin observes.
+ */
+const REFERER = 'https://www.google.com.br/';
+const ACCEPT_LANGUAGE = 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7';
 
-function getRandomResidentialHeaders(): Record<string, string> {
-  const ip = RESIDENTIAL_IPS[Math.floor(Math.random() * RESIDENTIAL_IPS.length)];
+function browserHeaders(): Record<string, string> {
   return {
-    'X-Forwarded-For': ip,
-    'CF-Connecting-IP': ip,
-    'X-Real-IP': ip,
-    'Client-IP': ip,
-    'Referer': 'https://www.google.com.br/',
-    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+    Referer: REFERER,
+    'Accept-Language': ACCEPT_LANGUAGE,
   };
+}
+
+/**
+ * Routes the request through a configured proxy, when one exists.
+ *
+ * Read per call rather than at module load so the env var can be set in a test
+ * or a one-off script without a restart.
+ */
+function proxyConfig(): { proxy: false | { host: string; port: number; auth?: { username: string; password: string } } } {
+  const raw = process.env.CLONE_PROXY_URL;
+  if (!raw) return { proxy: false };
+
+  try {
+    const url = new URL(raw.includes('://') ? raw : `http://${raw}`);
+    const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+    return {
+      proxy: {
+        host: url.hostname,
+        port,
+        ...(url.username
+          ? { auth: { username: decodeURIComponent(url.username), password: decodeURIComponent(url.password) } }
+          : {}),
+      },
+    };
+  } catch (error) {
+    console.warn(`[Cloner] CLONE_PROXY_URL inválido, ignorando: ${(error as Error).message}`);
+    return { proxy: false };
+  }
 }
 
 /**
  * 1. Fetch Multi-Tier de Alta Fidelidade (Anti-Bloqueio / Anti-Bot)
  */
 async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; finalUrl: string }> {
+  const { proxy } = proxyConfig();
+
   const tiers = [
     {
       name: 'Chrome Desktop Moderno',
@@ -105,6 +146,8 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         Accept:
           'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        // Must agree with the User-Agent: Chrome 128 on Windows. A mismatch here
+        // is a stronger bot signal than any header on its own.
         'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': '"Windows"',
@@ -113,7 +156,7 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-User': '?1',
         'Upgrade-Insecure-Requests': '1',
-        ...getRandomResidentialHeaders(),
+        ...browserHeaders(),
       },
     },
     {
@@ -122,10 +165,11 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
         'User-Agent':
           'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        // Safari does not send Sec-Ch-Ua at all, so none are set here.
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
-        ...getRandomResidentialHeaders(),
+        ...browserHeaders(),
       },
     },
     {
@@ -133,7 +177,6 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
       headers: {
         'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
         Accept: '*/*',
-        ...getRandomResidentialHeaders(),
       },
     },
   ];
@@ -142,12 +185,13 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
 
   for (const tier of tiers) {
     try {
-      console.log(`[Cloner] Tentando download com: ${tier.name}`);
+      console.log(`[Cloner] Tentando download com: ${tier.name}${proxy ? ' (via proxy)' : ''}`);
       const res = await axios.get(targetUrl, {
         timeout: 18000,
         headers: tier.headers,
         maxRedirects: 8,
         validateStatus: (status) => status < 400,
+        ...(proxy ? { proxy } : {}),
       });
 
       if (res.data && typeof res.data === 'string' && res.data.length > 500) {
@@ -441,6 +485,11 @@ async function cloneWithCheerio(
   });
 
   const $ = cheerio.load(rawHtml);
+
+  // Endpoint absoluto para onde os formulários do clone vão submeter. Precisa ser
+  // absoluto porque o clone é servido em um subpath ou subdomínio, não no host
+  // original — um action relativo resolveria no lugar errado.
+  const appOrigin = getAppUrl();
 
   // Função auxiliar para resolver URLs relativas para absolutas
   function resolveUrl(relativeUrl: string | undefined): string {
@@ -1030,6 +1079,32 @@ async function cloneWithCheerio(
     },
   });
 
+  // 17.2 Rewire forms to this platform.
+  //
+  // Until this step the clone shipped the original site's form action, so a
+  // submission went to the original operator or was blocked by CORS before
+  // leaving the browser. The page id only exists now, so this runs after the
+  // create rather than during the DOM pass.
+  const wiring = wireCloneForms(cleanFinalHtml, {
+    endpoint: `${appOrigin}/api/pages/${pageRecord.id}/form-submissions`,
+    sourceUrl: clone.sourceUrl,
+    successRedirect: `${appOrigin}/p/${slug}`,
+  });
+
+  if (wiring.formCount > 0) {
+    cleanFinalHtml = wiring.html;
+    await prisma.page.update({
+      where: { id: pageRecord.id },
+      data: { html: cleanFinalHtml },
+    });
+    console.log(
+      `[Cloner] ${wiring.formCount} formulário(s) ligado(s) à captura de lead desta plataforma` +
+        (wiring.skipped > 0 ? `; ${wiring.skipped} sem campos foram preservados como estão` : '')
+    );
+  } else {
+    console.log('[Cloner] Nenhum formulário encontrado nesta página');
+  }
+
   // Salva a hierarquia estrutural essencial no banco de dados de forma ágil
   async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
     if (depth > 2) return;
@@ -1287,12 +1362,24 @@ async function cloneWithCheerio(
       cleanFinalHtml = $.html();
 
       // 2. Reescreve em cada subpágina e atualiza no banco de dados
+      let subpageFormsWired = 0;
       for (const sub of subpageDocs) {
         rewriteLinksInCheerio(sub.$);
+        // Each subpage has its own row, so each gets its own endpoint. Sharing
+        // the parent's would file the lead under the wrong page.
+        const subWiring = wireCloneForms(sub.$.html(), {
+          endpoint: `${appOrigin}/api/pages/${sub.recordId}/form-submissions`,
+          sourceUrl: sub.url,
+          successRedirect: `${appOrigin}/p/${sub.slug}`,
+        });
+        if (subWiring.formCount > 0) subpageFormsWired += subWiring.formCount;
         await prisma.page.update({
           where: { id: sub.recordId },
-          data: { html: sub.$.html() },
+          data: { html: subWiring.html },
         });
+      }
+      if (subpageFormsWired > 0) {
+        console.log(`[Cloner] ${subpageFormsWired} formulário(s) ligado(s) em subpáginas`);
       }
 
       // 3. Atualiza os metadados e HTML da página principal
@@ -1303,6 +1390,7 @@ async function cloneWithCheerio(
           meta: {
             ...pageMeta,
             subpages: clonedSubpagesList,
+            formWiring: { formCount: wiring.formCount, skipped: wiring.skipped },
           },
         },
       });
@@ -1542,7 +1630,7 @@ async function cloneWithPlaywright(
       return extractNodeData(document.body, 'body');
     });
 
-    const finalHtml = await page.content();
+    let finalHtml = await page.content();
 
     const playwrightMeta = await page.evaluate(() => {
       const title = document.title || '';
@@ -1577,6 +1665,30 @@ async function cloneWithPlaywright(
         status: 'DRAFT',
       },
     });
+
+    // Same lead-capture wiring as the Cheerio path. Without it, anyone running
+    // local Chromium got a clone whose forms still posted to the original site.
+    const pwOrigin = getAppUrl();
+    const pwWiring = wireCloneForms(finalHtml, {
+      endpoint: `${pwOrigin}/api/pages/${pageRecord.id}/form-submissions`,
+      sourceUrl: clone.sourceUrl,
+      successRedirect: `${pwOrigin}/p/${slug}`,
+    });
+
+    if (pwWiring.formCount > 0) {
+      finalHtml = pwWiring.html;
+      await prisma.page.update({
+        where: { id: pageRecord.id },
+        data: {
+          html: finalHtml,
+          meta: {
+            ...playwrightMeta,
+            formWiring: { formCount: pwWiring.formCount, skipped: pwWiring.skipped },
+          },
+        },
+      });
+      console.log(`[Cloner/Playwright] ${pwWiring.formCount} formulário(s) ligado(s) à captura de lead`);
+    }
 
     async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
       if (depth > 2) return;

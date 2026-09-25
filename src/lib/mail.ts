@@ -14,6 +14,11 @@ interface SendEmailProps {
   subject: string;
   html: string;
   text?: string;
+  /**
+   * Envelope sender for replies. Only ever set from a value that has already
+   * passed validation at the call site, never straight from form input.
+   */
+  replyTo?: string;
 }
 
 /**
@@ -272,7 +277,7 @@ export function generateWelcomeEmailHtml(name: string, email: string, confirmUrl
 /**
  * Envia e-mail genérico com suporte a fallback
  */
-export async function sendEmail({ to, subject, html, text }: SendEmailProps): Promise<{ success: boolean; messageId?: string; error?: string }> {
+export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailProps): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     // 1. Tenta envio direto via Resend API se RESEND_API_KEY estiver configurada
     const resendApiKey = process.env.RESEND_API_KEY;
@@ -286,6 +291,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailProps): Pr
         subject,
         html,
         text: text || 'Acesse o ROI Clone para visualizar este comunicado.',
+        ...(replyTo ? { reply_to: replyTo } : {}),
       });
 
       if (res.error) {
@@ -302,9 +308,9 @@ export async function sendEmail({ to, subject, html, text }: SendEmailProps): Pr
 
     if (!transporter) {
       console.warn(`[ROI Mail] Nem RESEND_API_KEY nem SMTP configurados. Não foi possível enviar e-mail real para: ${to}`);
-      return { 
-        success: false, 
-        error: 'Servidor de e-mail não configurado. Certifique-se de adicionar RESEND_API_KEY nas variáveis de ambiente da Vercel.' 
+      return {
+        success: false,
+        error: 'Servidor de e-mail não configurado. Certifique-se de adicionar RESEND_API_KEY nas variáveis de ambiente da Vercel.'
       };
     }
 
@@ -316,6 +322,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailProps): Pr
       subject,
       html,
       text: text || 'Acesse o ROI Clone para visualizar este comunicado.',
+      ...(replyTo ? { replyTo } : {}),
     });
 
     console.log(`[ROI Mail - SMTP] E-mail enviado com sucesso para ${to}. ID: ${info.messageId}`);
