@@ -233,8 +233,6 @@ export function CloneInspector({ pageId }: { pageId: string }) {
   );
 }
 
-export { CloneInspector };
-
 function StatCard({
   icon: Icon,
   tone,
