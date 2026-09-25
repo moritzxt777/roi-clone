@@ -169,18 +169,27 @@ export default function ClonesManagementPage() {
         }),
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Erro ao iniciar clonagem');
+      let clone: any = {};
+      try {
+        clone = await res.json();
+      } catch {
+        throw new Error(`Falha na resposta do servidor (${res.status}). A clonagem pode ter sido iniciada.`);
       }
 
-      const clone = await res.json();
+      if (!res.ok) {
+        throw new Error(clone.error || 'Erro ao iniciar clonagem');
+      }
+
       setIsModalOpen(false);
       setTargetUrl('');
       setProjectName('');
       setNewCheckoutUrl('');
       setPixKey('');
-      router.push(`/dashboard/clones/${clone.id}/progress`);
+      if (clone?.id) {
+        router.push(`/dashboard/clones/${clone.id}/progress`);
+      } else {
+        fetchClones();
+      }
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {

@@ -823,9 +823,9 @@ async function cloneWithCheerio(
     const pixModalHtml = `
     <div id="roi-pix-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);z-index:999999;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;">
       <div style="background:#0d0e14;border:1px solid rgba(255,255,255,0.15);border-radius:24px;padding:32px;max-width:400px;width:90%;text-align:center;color:#fff;box-shadow:0 25px 50px -12px rgba(0,0,0,0.7);position:relative;">
-        <button onclick="document.getElementById('roi-pix-modal').style.display='none'" style="position:absolute;top:16px;right:16px;background:none;border:none;color:#888;font-size:18px;cursor:pointer;">âœ•</button>
-        <div style="width:48px;height:48px;border-radius:12px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#10b981;font-weight:bold;font-size:22px;">âš¡</div>
-        <h3 style="margin:0 0 8px;font-size:18px;font-weight:bold;">Pagamento Instantà¢neo PIX</h3>
+        <button onclick="document.getElementById('roi-pix-modal').style.display='none'" style="position:absolute;top:16px;right:16px;background:none;border:none;color:#888;font-size:18px;cursor:pointer;">✕</button>
+        <div style="width:48px;height:48px;border-radius:12px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#10b981;font-weight:bold;font-size:22px;">⚡</div>
+        <h3 style="margin:0 0 8px;font-size:18px;font-weight:bold;">Pagamento Instantâneo PIX</h3>
         <p style="margin:0 0 16px;color:#aaa;font-size:12px;">Escaneie o QR Code ou copie a chave abaixo para liberação imediata:</p>
         <div style="background:#fff;padding:12px;border-radius:16px;display:inline-block;margin-bottom:16px;">
           <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(safePixKey)}" alt="QR Code Pix" style="display:block;width:180px;height:180px;" />
@@ -1611,7 +1611,7 @@ async function cloneWithPlaywright(
       }
     });
 
-    const response = await page.goto(targetUrl, { waitUntil: 'load', timeout: 25000 });
+    const response = await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
     const status = response?.status() || 200;
     const bodyText = (await page.textContent('body')) || '';
     const isBlocked =

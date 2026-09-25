@@ -105,12 +105,17 @@ export default function DashboardPage() {
         }),
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Erro ao criar clone');
+      let clone: any = {};
+      try {
+        clone = await res.json();
+      } catch {
+        throw new Error(`Falha na resposta do servidor (${res.status}). O clone pode ter sido iniciado.`);
       }
 
-      const clone = await res.json();
+      if (!res.ok) {
+        throw new Error(clone.error || 'Erro ao criar clone');
+      }
+
       router.push(`/dashboard/clones/${clone.id}/progress`);
     } catch (err: any) {
       setError(err.message);

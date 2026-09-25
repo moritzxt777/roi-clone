@@ -97,18 +97,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    try {
-      await clonePage(clone.id, { newCheckoutUrl, pixKey, optimizeWithAi, crawlFullSite, maxPages });
-    } catch (err) {
-      console.error('Clone processing error:', err);
-    }
-
-    const updatedClone = await prisma.clone.findUnique({
-      where: { id: clone.id },
-      include: { page: true }
+    // Process clone in background so HTTP response is returned immediately to the client (<50ms).
+    // The client UI navigates to /dashboard/clones/[id]/progress to track status via /api/clone/[id]/status.
+    clonePage(clone.id, { newCheckoutUrl, pixKey, optimizeWithAi, crawlFullSite, maxPages }).catch((err) => {
+      console.error('Clone background processing error:', err);
     });
 
-    return NextResponse.json(updatedClone || clone, { status: 201 });
+    return NextResponse.json(clone, { status: 201 });
   } catch (error) {
     console.error('Create clone error:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });

@@ -137,7 +137,13 @@ export default function OfertasPage() {
         }),
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(`Falha na resposta do servidor (${res.status}). A clonagem pode ter sido iniciada.`);
+      }
+
       if (!res.ok) {
         throw new Error(data.error || 'Erro ao iniciar clonagem');
       }
