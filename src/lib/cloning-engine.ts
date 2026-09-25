@@ -67,28 +67,59 @@ async function mirrorPageAssets(
             return;
           }
 
-          await prisma.cloneAsset.upsert({
-            where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
-            create: {
-              pageId,
-              sourceUrl: asset.sourceUrl,
-              storageKey: asset.storageKey,
-              contentType: asset.contentType,
-              size: asset.size,
-              checksum: asset.checksum,
-              status: 'READY',
-              data: toPrismaBytes(bytes),
-            },
-            update: {
-              storageKey: asset.storageKey,
-              contentType: asset.contentType,
-              size: asset.size,
-              checksum: asset.checksum,
-              status: 'READY',
-              error: null,
-              data: toPrismaBytes(bytes),
-            },
-          });
+          try {
+            await prisma.cloneAsset.upsert({
+              where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
+              create: {
+                pageId,
+                sourceUrl: asset.sourceUrl,
+                storageKey: asset.storageKey,
+                contentType: asset.contentType,
+                size: asset.size,
+                checksum: asset.checksum,
+                status: 'READY',
+                data: toPrismaBytes(bytes),
+              },
+              update: {
+                storageKey: asset.storageKey,
+                contentType: asset.contentType,
+                size: asset.size,
+                checksum: asset.checksum,
+                status: 'READY',
+                error: null,
+                data: toPrismaBytes(bytes),
+              },
+            });
+          } catch (upsertErr: any) {
+            // Se storageKey já foi gravado por outra sourceUrl com mesmo conteúdo exato,
+            // gera uma storageKey com hash da sourceUrl para garantir unicidade
+            if (upsertErr?.code === 'P2002') {
+              const ext = asset.storageKey.split('.').pop() || 'bin';
+              const uniqueKey = `${asset.checksum.slice(0, 20)}-${Buffer.from(asset.sourceUrl).toString('hex').slice(0, 10)}.${ext}`;
+              await prisma.cloneAsset.upsert({
+                where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
+                create: {
+                  pageId,
+                  sourceUrl: asset.sourceUrl,
+                  storageKey: uniqueKey,
+                  contentType: asset.contentType,
+                  size: asset.size,
+                  checksum: asset.checksum,
+                  status: 'READY',
+                  data: toPrismaBytes(bytes),
+                },
+                update: {
+                  storageKey: uniqueKey,
+                  contentType: asset.contentType,
+                  size: asset.size,
+                  checksum: asset.checksum,
+                  status: 'READY',
+                  error: null,
+                  data: toPrismaBytes(bytes),
+                },
+              }).catch(() => {});
+            }
+          }
         } catch (err: any) {
           // If the unique constraint on (pageId, storageKey) triggers, the asset is already saved
           if (err?.code === 'P2002') return;
@@ -147,21 +178,19 @@ export async function clonePage(cloneId: string, options?: CloneOptions): Promis
         ? `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_API_KEY}`
         : null);
 
-    const isVercel = !!process.env.VERCEL;
-
-    // Se estiver na Vercel e não tiver WebSocket remoto configurado, usa diretamente o motor HTTP Cheerio
-    if (isVercel && !wsEndpoint) {
-      console.log('[Cloner] Ambiente Vercel sem WS remoto detectado. Utilizando motor HTTP Cheerio de alta performance.');
+    // Se não tiver WebSocket remoto (ex: Browserless), usa diretamente o motor HTTP Cheerio
+    // de altíssima performance e baixíssimo consumo de memória (vital para a VPS não estourar RAM com Chromium local)
+    if (!wsEndpoint) {
+      console.log('[Cloner] Utilizando motor Cheerio Multi-Tier de alta performance e fidelidade.');
       await cloneWithCheerio(cloneId, clone, targetUrl, options);
       return;
     }
 
-    // Tenta clonagem com Playwright (se tiver WS ou se estiver em ambiente local/VPS com Chromium instalado)
+    // Se tiver WebSocket configurado, usa Playwright remoto
     try {
       await cloneWithPlaywright(cloneId, clone, targetUrl, wsEndpoint, options);
     } catch (playwrightErr: any) {
-      console.warn('[Cloner] Falha ao iniciar Playwright:', playwrightErr?.message || playwrightErr);
-      console.log('[Cloner] Executando fallback automático para o motor HTTP Cheerio...');
+      console.warn('[Cloner] Falha no Playwright remoto, executando fallback para Cheerio:', playwrightErr?.message || playwrightErr);
       await cloneWithCheerio(cloneId, clone, targetUrl, options);
     }
   } catch (error) {
@@ -674,23 +703,29 @@ async function cloneWithCheerio(
       $(el).attr('src', resolveUrl(src));
     } else {
       let scriptContent = $(el).html() || '';
+
+      // Neutralizar scripts invasivos de tracking externos inline,
+      // MAS NUNCA remover scripts com timers, funis, lógica de quiz ou verificação!
       if (
-        scriptContent.includes('location.replace') ||
-        scriptContent.includes('replaceState') ||
-        scriptContent.includes('googlePixelId') ||
-        scriptContent.includes('fbevents') ||
-        scriptContent.includes('clarity') ||
-        scriptContent.includes('taboola') ||
-        scriptContent.includes('utmify') ||
-        scriptContent.includes('self.__next_f')
+        (scriptContent.includes('googlePixelId') && !scriptContent.includes('function') && scriptContent.length < 300) ||
+        (scriptContent.includes('fbevents.js') && !scriptContent.includes('setInterval') && scriptContent.length < 500)
       ) {
         $(el).remove();
         return;
       }
 
+      // Neutralizar travas anti-desktop e anti-automation que congelam barras de carregamento/verificação no PC
+      if (scriptContent.includes('isMobileDevice') || scriptContent.includes('hasAutomationSignals')) {
+        scriptContent = scriptContent
+          .replace(/function\s+isMobileDevice\s*\([^)]*\)\s*\{[\s\S]*?\}/gi, 'function isMobileDevice() { return true; }')
+          .replace(/function\s+hasAutomationSignals\s*\([^)]*\)\s*\{[\s\S]*?\}/gi, 'function hasAutomationSignals() { return false; }');
+      }
+
+      // Neutralizar framebusters e travas de hostname sem quebrar o restante da lógica
       if (
         scriptContent.includes('top.location') ||
         scriptContent.includes('window.top') ||
+        scriptContent.includes('parent.location') ||
         scriptContent.includes('location.hostname') ||
         scriptContent.includes('location.host') ||
         scriptContent.includes('debugger') ||
@@ -699,14 +734,37 @@ async function cloneWithCheerio(
       ) {
         scriptContent = scriptContent
           .replace(/top\.location\s*=/gi, '// top.location =')
+          .replace(/top\.location\.replace/gi, '// top.location.replace')
+          .replace(/window\.top\.location\s*=/gi, '// window.top.location =')
+          .replace(/window\.top\.location\.replace/gi, '// window.top.location.replace')
+          .replace(/parent\.location\s*=/gi, '// parent.location =')
           .replace(/window\.top\s*!==\s*window\.self/gi, 'false')
           .replace(/top\s*!==\s*self/gi, 'false')
           .replace(/self\s*!==\s*top/gi, 'false')
           .replace(/debugger;/gi, '/* debugger */')
           .replace(/location\.hostname\s*!==/gi, 'false &&')
           .replace(/location\.host\s*!==/gi, 'false &&');
-        $(el).html(scriptContent);
       }
+
+      // Resolver URLs relativas de redirecionamento (ex: destinationUrl = '/01/index.html')
+      // para evitar 404 quando o usuário clica no botão continuar da oferta
+      if (options?.newCheckoutUrl) {
+        scriptContent = scriptContent.replace(
+          /(var\s+destinationUrl\s*=\s*['"])([^'"]+)(['"])/gi,
+          `$1${options.newCheckoutUrl}$3`
+        );
+      } else {
+        scriptContent = scriptContent.replace(
+          /(var\s+destinationUrl\s*=\s*['"])([^'"]+)(['"])/gi,
+          (_, p1, p2, p3) => {
+            if (p2.startsWith('http://') || p2.startsWith('https://')) return `${p1}${p2}${p3}`;
+            const abs = resolveUrl(p2);
+            return `${p1}${abs}${p3}`;
+          }
+        );
+      }
+
+      $(el).html(scriptContent);
     }
   });
 
@@ -988,6 +1046,8 @@ async function cloneWithCheerio(
   const ignoreKeywords = /wp-admin|wp-login|login|logout|cadastrar|register|admin|feed|xmlrpc|\.(pdf|zip|png|jpg|jpeg|webp|svg|mp4|mp3)$/i;
 
   const subpagesMap = new Map<string, { title: string; url: string; slug: string; priority: number }>();
+
+  // Descobrir links em tags <a href>
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href');
     const text = $(el).text()?.trim() || '';
@@ -1007,14 +1067,15 @@ async function cloneWithCheerio(
           !ignoreKeywords.test(full.pathname)
         ) {
           const cleanPath = full.pathname.replace(/^\/|\/$/g, '');
-          if (cleanPath && !cleanPath.includes('.') && !subpagesMap.has(full.href)) {
+          const isAsset = /\.(?:png|jpe?g|gif|webp|svg|css|js|woff2?|ttf|eot|ico|mp4|mp3|pdf|zip)$/i.test(cleanPath);
+          if (cleanPath && !isAsset && !subpagesMap.has(full.href)) {
             let pageTitle = text || `Página /${cleanPath}`;
             if (pageTitle.length > 40) pageTitle = `Página /${cleanPath}`;
             const priority = funnelKeywords.test(full.pathname) || funnelKeywords.test(text) ? 100 : 10;
             subpagesMap.set(full.href, {
               title: pageTitle,
               url: full.href,
-              slug: cleanPath,
+              slug: cleanPath.replace(/[^a-zA-Z0-9_-]/g, '-'),
               priority,
             });
           }
@@ -1022,6 +1083,36 @@ async function cloneWithCheerio(
       } catch {}
     }
   });
+
+  // Descobrir também links e rotas de funil escondidas dentro de scripts (como destinationUrl = '/01/index.html')
+  const scriptRegex = /(?:destinationUrl|redirectUrl|nextUrl|window\.location(?:\.replace|\.href)?)\s*[:=]\s*['"]([^'"]+)['"]/gi;
+  let match: RegExpExecArray | null;
+  while ((match = scriptRegex.exec(rawHtml)) !== null) {
+    const foundPath = match[1];
+    if (foundPath && !foundPath.startsWith('#') && !foundPath.startsWith('javascript:')) {
+      try {
+        const full = new URL(foundPath, baseUrl.href);
+        if (
+          full.origin === baseUrl.origin &&
+          full.pathname !== '/' &&
+          full.pathname !== baseUrl.pathname &&
+          !ignoreKeywords.test(full.pathname)
+        ) {
+          const cleanPath = full.pathname.replace(/^\/|\/$/g, '');
+          const isAsset = /\.(?:png|jpe?g|gif|webp|svg|css|js|woff2?|ttf|eot|ico|mp4|mp3|pdf|zip)$/i.test(cleanPath);
+          if (cleanPath && !isAsset && !subpagesMap.has(full.href)) {
+            const pageTitle = `Passo do Funil /${cleanPath}`;
+            subpagesMap.set(full.href, {
+              title: pageTitle,
+              url: full.href,
+              slug: cleanPath.replace(/[^a-zA-Z0-9_-]/g, '-'),
+              priority: 150,
+            });
+          }
+        }
+      } catch {}
+    }
+  }
 
   const sortedDiscoveredSubpages = Array.from(subpagesMap.values()).sort((a, b) => b.priority - a.priority);
   const discoveredSubpages = sortedDiscoveredSubpages.slice(0, 15).map(({ title, url, slug }) => ({ title, url, slug }));
@@ -1460,6 +1551,16 @@ async function cloneWithCheerio(
       // 1. Reescreve na página principal
       rewriteLinksInCheerio($);
       cleanFinalHtml = $.html();
+
+      // Também reescreve destinationUrl dentro dos scripts da página principal para apontar para as subpáginas
+      for (const sub of subpageDocs) {
+        const escapedSubPath = sub.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const cleanEscapedSubPath = sub.path.replace(/^\//, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        cleanFinalHtml = cleanFinalHtml.replace(
+          new RegExp(`(destinationUrl\\s*=\\s*['"])(?:${escapedSubPath}|${cleanEscapedSubPath}|${sub.url})(['"])`, 'gi'),
+          `$1/p/${sub.slug}$2`
+        );
+      }
 
       // 2. Reescreve em cada subpágina e atualiza no banco de dados
       let subpageFormsWired = 0;

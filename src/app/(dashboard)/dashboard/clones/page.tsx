@@ -85,10 +85,13 @@ export default function ClonesManagementPage() {
 
   const fetchClones = async () => {
     try {
-      const res = await fetch('/api/clones');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch('/api/clones', { signal: controller.signal });
+      clearTimeout(timeoutId);
       if (res.ok) {
         const data = await res.json();
-        setClones(data);
+        setClones(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error('Error fetching clones:', err);
@@ -99,6 +102,12 @@ export default function ClonesManagementPage() {
 
   useEffect(() => {
     fetchClones();
+
+    // Fallback de segurança para nunca travar a interface
+    const fallbackTimer = setTimeout(() => {
+      setLoading(false);
+    }, 3500);
+
     const interval = setInterval(() => {
       setClones((prev) => {
         const hasPending = prev.some((c) => !['COMPLETED', 'FAILED'].includes(c.status));
@@ -107,7 +116,10 @@ export default function ClonesManagementPage() {
       });
     }, 4000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(fallbackTimer);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleAnalyzeWithAi = async () => {

@@ -164,14 +164,9 @@ export function EditorCanvas({ initialHtml = '', initialSourceUrl = '' }: Editor
       .replace(/<script[^>]*src=["'][^"']*\/_next\/static\/chunks\/(?:main-app|webpack|app\/layout|app\/error|app\/not-found)[^"']*["'][^>]*><\/script>/gi, '')
       .replace(/<script[\s\S]*?<\/script>/gi, (match) => {
         if (
-          match.includes('location.replace') ||
-          match.includes('replaceState') ||
           match.includes('window.top') ||
           match.includes('top.location') ||
-          match.includes('googlePixelId') ||
-          match.includes('self.__next_f') ||
-          match.includes('clarity') ||
-          match.includes('taboola') ||
+          (match.includes('googlePixelId') && !match.includes('function')) ||
           match.includes('Application error')
         ) {
           return '';

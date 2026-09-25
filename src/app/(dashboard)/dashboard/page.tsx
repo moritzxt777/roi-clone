@@ -63,21 +63,40 @@ export default function DashboardPage() {
 
   // Fetch real user clones from API
   useEffect(() => {
+    let active = true;
     const fetchClones = async () => {
       try {
-        const res = await fetch('/api/clones');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch('/api/clones', { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (res.ok) {
           const data = await res.json();
-          setClones(data);
+          if (active) {
+            setClones(Array.isArray(data) ? data : []);
+          }
+        } else {
+          if (active) setClones([]);
         }
       } catch (err) {
         console.error('Error fetching clones:', err);
+        if (active) setClones([]);
       } finally {
-        setLoadingClones(false);
+        if (active) setLoadingClones(false);
       }
     };
 
     fetchClones();
+
+    // Fallback de segurança: assegura que o spinner nunca trave por mais de 3.5 segundos
+    const fallbackTimer = setTimeout(() => {
+      if (active) setLoadingClones(false);
+    }, 3500);
+
+    return () => {
+      active = false;
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   const handleClone = async (e: React.FormEvent) => {
