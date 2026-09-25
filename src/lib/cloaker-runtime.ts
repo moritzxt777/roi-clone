@@ -32,6 +32,33 @@ export async function collectNetworkSignals(
   return { clientIp: ip, ipSource: source, ptr, ptrKind: kind };
 }
 
+/**
+ * Tracks whether the metrics table is reachable.
+ *
+ * `CloakerMetric` was added to the schema but the target database only gains the
+ * table on `prisma db push`. Until that runs, every write throws, and because the
+ * Prisma client raises its own unhandled rejection while formatting the error,
+ * the request can fail with a 500 even though the call site is wrapped in
+ * try/catch. That took `/p/[slug]` down entirely.
+ *
+ * So the failure is latched: the first error disables metrics for the life of the
+ * process, logs once with the migration instruction, and every later request
+ * serves the page without touching the metrics table. Delivery never depends on
+ * observability being wired up.
+ */
+let metricsAvailable = true;
+let metricsDisabledReason: string | null = null;
+
+/** Re-enables metric writes. Exported for tests and for post-migration warmups. */
+export function __resetMetricsAvailability() {
+  metricsAvailable = true;
+  metricsDisabledReason = null;
+}
+
+export function metricsAreAvailable(): boolean {
+  return metricsAvailable;
+}
+
 export interface HitRecord {
   pageId: string;
   blocked: boolean;
@@ -44,9 +71,12 @@ export interface HitRecord {
  *
  * `increment` is evaluated by PostgreSQL, so N simultaneous crawlers produce N
  * increments with no lost updates and no read of the row first. This replaces
- * the previous fire-and-forget update that rewrote the full `meta` JSON.
+ * the previous fire-and-forget update that rewrote the full `meta` JSON and could
+ * restore a stale config over a user's just-saved edit.
  */
 export async function recordCloakerHit(hit: HitRecord): Promise<void> {
+  if (!metricsAvailable) return;
+
   const blocked = hit.blocked;
   const now = new Date();
   const blockedReason = blocked ? (hit.reason ?? hit.verdict).slice(0, 500) : null;
@@ -74,9 +104,14 @@ export async function recordCloakerHit(hit: HitRecord): Promise<void> {
       },
     });
   } catch (error) {
-    // Metrics are observability, not delivery. A write failure must never turn a
-    // live offer into an error page, so it is logged and dropped.
-    console.error('[cloaker] falha ao registrar métrica:', error);
+    metricsAvailable = false;
+    const message = error instanceof Error ? error.message : String(error);
+    metricsDisabledReason = message;
+    console.error(
+      '[cloaker] métricas desativadas neste processo: a tabela CloakerMetric ainda não existe no banco. ' +
+        'Rode `npx prisma db push` para criar a tabela e restaurar a contagem. Detalhe:',
+      message.split('\n')[0]
+    );
   }
 }
 
@@ -91,7 +126,7 @@ export interface CloakerMetrics {
 
 export async function readCloakerMetrics(pageIds: string[]): Promise<Map<string, CloakerMetrics>> {
   const empty = new Map<string, CloakerMetrics>();
-  if (pageIds.length === 0) return empty;
+  if (pageIds.length === 0 || !metricsAvailable) return empty;
 
   const rows = await prisma.cloakerMetric.findMany({
     where: { pageId: { in: pageIds } },

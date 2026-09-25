@@ -41,8 +41,10 @@ const REQUEST_TIMEOUT_MS = 8000;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
-const RESOURCE_KINDS: Array<[RegExp, BrokenReference['kind']]> = [
-  [/\.(?:avif|webp|png|jpe?g|gif|svg|bmp|ico)(?:$|\?)/i, 'imagem'],
+import * as cheerio from 'cheerio';
+import type { Element } from 'domhandler';
+
+const RESOURCE_KINDS: Array<[RegExp, BrokenReference['kind']]> = [  [/\.(?:avif|webp|png|jpe?g|gif|svg|bmp|ico)(?:$|\?)/i, 'imagem'],
   [/\.(?:woff2?|ttf|otf|eot)(?:$|\?)/i, 'fonte'],
   [/\.(?:js|mjs)(?:$|\?)/i, 'script'],
   [/\.css(?:$|\?)/i, 'stylesheet'],
@@ -58,33 +60,88 @@ export interface HealthCheckInput {
   sourceOrigin?: string | null;
 }
 
-export function collectAssetUrls(html: string): string[] {
-  const urls = new Set<string>();
+/**
+ * One referenced resource, with enough context to decide whether it could be a
+ * file worth mirroring.
+ *
+ * `embedded` is the field that matters downstream. An extensionless
+ * `<img src="/render?id=123">` is an image behind a proxy and must be mirrored;
+ * an extensionless `<script src="/bundle">` is a script and must not be probed.
+ * Both are a bare `src`, so the tag name has to be part of the answer — which is
+ * why this walks the DOM instead of regexing the markup.
+ */
+export interface AssetReference {
+  url: string;
+  attribute: 'src' | 'href' | 'srcset' | 'poster' | 'css';
+  /** True when the reference is an embedded media/file slot, not a link target. */
+  embedded: boolean;
+}
 
-  const attributePattern = /\b(?:src|href|data-src|poster|srcset)\s*=\s*["']([^"']+)["']/gi;
-  let match: RegExpExecArray | null;
-  while ((match = attributePattern.exec(html)) !== null) {
-    const value = match[1].trim();
-    if (!value || value.startsWith('data:') || value.startsWith('blob:') || value.startsWith('#')) continue;
+const EMBEDDING_TAGS = new Set(['img', 'image', 'source', 'video', 'audio', 'embed', 'input', 'track']);
 
-    if (/\bsrcset\s*=/i.test(match[0])) {
-      for (const candidate of value.split(',')) {
-        const url = candidate.trim().split(/\s+/)[0];
-        if (url && !url.startsWith('data:')) urls.add(url);
-      }
-      continue;
+/** Attributes on an embedding tag that point at the file it plays. */
+const EMBEDDING_ATTRIBUTES = new Set(['src', 'srcset', 'poster', 'href', 'data-src', 'data-href']);
+
+export function collectAssetReferences(html: string): AssetReference[] {
+  const found = new Map<string, AssetReference>();
+  const $ = cheerio.load(html);
+
+  const add = (url: string, attribute: AssetReference['attribute'], embedded: boolean) => {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith('data:') || trimmed.startsWith('blob:') || trimmed.startsWith('#')) return;
+    if (found.has(trimmed)) return;
+    // A URL seen once as embedded and once as a link target stays embedded:
+    // the file is worth mirroring and the link is incidental.
+    const existing = found.get(trimmed);
+    if (existing) {
+      if (embedded) existing.embedded = true;
+      return;
     }
-    urls.add(value);
-  }
+    found.set(trimmed, { url: trimmed, attribute, embedded });
+  };
 
-  // Fonts and images referenced from CSS are invisible to an attribute scan.
+  $('*').each((_, element) => {
+    const node = $(element);
+    const tag = (element as { tagName?: string }).tagName?.toLowerCase() ?? '';
+    const isEmbeddingTag = EMBEDDING_TAGS.has(tag);
+
+    for (const attribute of Object.keys((element as Element).attribs ?? {})) {
+      const lower = attribute.toLowerCase();
+      const value = node.attr(attribute);
+      if (!value) continue;
+
+      const isSrcset = lower === 'srcset';
+      const isKnown = isSrcset || lower === 'src' || lower === 'poster' || lower === 'href' || lower === 'data-src' || lower === 'data-href';
+      if (!isKnown) continue;
+
+      if (isSrcset) {
+        for (const candidate of value.split(',')) {
+          add(candidate.trim().split(/\s+/)[0] ?? '', 'srcset', isEmbeddingTag);
+        }
+        continue;
+      }
+
+      const attributeKind: AssetReference['attribute'] =
+        lower === 'poster' ? 'poster' : lower === 'href' ? 'href' : 'src';
+
+      add(value, attributeKind, isEmbeddingTag && EMBEDDING_ATTRIBUTES.has(lower));
+    }
+  });
+
+  // Fonts and images referenced from CSS are invisible to an attribute scan, and
+  // a `url()` in CSS is always a file.
   const cssUrlPattern = /url\(\s*['"]?([^'")]+)['"]?\s*\)/gi;
+  let match: RegExpExecArray | null;
   while ((match = cssUrlPattern.exec(html)) !== null) {
-    const value = match[1].trim();
-    if (value && !value.startsWith('data:') && !value.startsWith('blob:')) urls.add(value);
+    add(match[1], 'css', true);
   }
 
-  return Array.from(urls);
+  return Array.from(found.values());
+}
+
+export function collectAssetUrls(html: string): string[] {
+  return collectAssetReferences(html).map((reference) => reference.url);
 }
 
 function classify(url: string): BrokenReference['kind'] {

@@ -145,6 +145,8 @@ model Page {
   aiSuggestions    AISuggestion[]
   formSubmissions  FormSubmission[]
   cloakerMetric    CloakerMetric?
+  cloneAssets      CloneAsset[]
+  cloneCaptures    CloneCapture[]
 
   @@unique([domainId, slug])
   @@index([userId])
@@ -168,6 +170,71 @@ model CloakerMetric {
   updatedAt         DateTime  @updatedAt
 
   @@index([lastHitAt])
+}
+
+// A cloned page used to hotlink every image, font and video straight to the
+// original host. When that host dropped the asset, or the CDN path changed, the
+// clone broke with nothing in the record to show for it. Mirroring the bytes
+// makes the page self-contained.
+//
+// Bytes live in the database rather than the filesystem because the app is
+// deployed both to Vercel (ephemeral filesystem) and to a VPS via Docker, and
+// two storage backends would be two behaviours. `size` is denormalised so the
+// serving route can set Content-Length without loading the blob.
+model CloneAsset {
+  id           String   @id @default(cuid())
+  pageId       String
+  page         Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  /// URL on the original site, used to deduplicate and to re-run a mirror.
+  sourceUrl    String
+  /// Stable content-addressed name, which is what makes the URL immutable.
+  storageKey   String
+  contentType  String
+  size         Int
+  /// sha256 of the bytes, so a changed asset produces a new key.
+  checksum     String
+  data         Bytes
+  status       AssetStatus @default(READY)
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@unique([pageId, sourceUrl])
+  @@unique([pageId, storageKey])
+  @@index([pageId, status])
+}
+
+// Requests a page made to its own backend while loading, captured during the
+// clone. Replaying these is what turns a broken SPA into a working static page:
+// the HTML clones cleanly, but the quiz, the countdown and the validation all
+// live behind XHR calls the origin no longer answers for us.
+model CloneCapture {
+  id           String   @id @default(cuid())
+  pageId       String
+  page         Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  method       String
+  /// Path plus query, without the origin, so the key survives a host change.
+  resourceKey  String
+  requestUrl   String
+  status       Int
+  contentType  String?
+  body         String?
+  /// Base64 for a binary body, which is most of what a SPA fetches.
+  bodyBase64   String?
+  requestBody  String?
+  /// How many times this exact request was seen, so a repeated call can be
+  /// distinguished from a single one when replaying.
+  hits         Int      @default(1)
+  createdAt    DateTime @default(now())
+
+  @@unique([pageId, resourceKey])
+  @@index([pageId])
+}
+
+enum AssetStatus {
+  READY
+  SKIPPED_TOO_LARGE
+  FAILED
+  SKIPPED_TYPE
 }
 
 model PageElement {

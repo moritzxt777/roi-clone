@@ -2,6 +2,9 @@ import prisma from '@/lib/prisma';
 import { sanitizeHtml } from '@/lib/validations';
 import { validateUrl } from './security/url-validator';
 import { wireCloneForms } from './clone-forms';
+import { mirrorAssets, rewriteAssetUrls, toPrismaBytes } from './clone-assets';
+import { buildReplayScript } from './clone-capture';
+import { installCaptureRecorder, manifestUrlFor } from './clone-capture-runtime';
 import { getAppUrl } from './url';
 import * as cheerio from 'cheerio';
 import axios from 'axios';
@@ -23,6 +26,99 @@ export interface CloneOptions {
   optimizeWithAi?: boolean;
   crawlFullSite?: boolean;
   maxPages?: number;
+}
+
+/**
+ * Mirrors a page's assets and returns the document with local URLs in place.
+ *
+ * Shared by both engines so the storage decision, the caps and the rewrite
+ * behave identically regardless of which one produced the page.
+ */
+async function mirrorPageAssets(
+  pageId: string,
+  input: { appOrigin: string; html: string; css: string }
+): Promise<{
+  html: string;
+  stored: number;
+  bytesStored: number;
+  notes: string[];
+}> {
+  try {
+    const report = await mirrorAssets(
+      { pageId, appOrigin: input.appOrigin, html: input.html, css: input.css },
+      async (asset, bytes) => {
+        if (asset.status !== 'READY') {
+          // A failed mirror is still worth recording: it explains a missing image
+          // later instead of leaving a silent gap.
+          await prisma.cloneAsset.upsert({
+            where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
+            create: {
+              pageId,
+              sourceUrl: asset.sourceUrl,
+              storageKey: asset.storageKey || `failed-${Buffer.from(asset.sourceUrl).toString('base64url').slice(0, 40)}`,
+              contentType: asset.contentType,
+              size: asset.size,
+              checksum: asset.checksum,
+              status: asset.status,
+              error: asset.error,
+              data: toPrismaBytes(bytes),
+            },
+            update: { status: asset.status, error: asset.error, size: asset.size },
+          });
+          return;
+        }
+
+        await prisma.cloneAsset.upsert({
+          where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
+          create: {
+            pageId,
+            sourceUrl: asset.sourceUrl,
+            storageKey: asset.storageKey,
+            contentType: asset.contentType,
+            size: asset.size,
+            checksum: asset.checksum,
+            status: 'READY',
+            data: toPrismaBytes(bytes),
+          },
+          update: {
+            storageKey: asset.storageKey,
+            contentType: asset.contentType,
+            size: asset.size,
+            checksum: asset.checksum,
+            status: 'READY',
+            error: null,
+            data: toPrismaBytes(bytes),
+          },
+        });
+      }
+    );
+
+    // Built from what is actually in the database, not from the in-memory report,
+    // so a write that failed is never rewritten into the document as if it had
+    // succeeded.
+    const persisted = await prisma.cloneAsset.findMany({
+      where: { pageId, status: 'READY' },
+      select: { sourceUrl: true, storageKey: true },
+    });
+
+    const replacements = new Map<string, string>();
+    for (const asset of persisted) {
+      replacements.set(asset.sourceUrl, `${input.appOrigin}/api/pages/assets/${asset.storageKey}`);
+    }
+
+    const rewritten = rewriteAssetUrls(input.html, replacements);
+    return {
+      html: rewritten.html,
+      stored: report.stored,
+      bytesStored: report.bytesStored,
+      notes: report.notes,
+    };
+  } catch (error) {
+    // A mirror failure must not fail the clone. The page is already usable with
+    // remote assets, and the health check will report the dependency.
+    console.warn('[Cloner] Espelhamento de recursos falhou:', (error as Error).message);
+    return { html: input.html, stored: 0, bytesStored: 0, notes: ['Espelhamento falhou.'] };
+  }
 }
 
 export async function clonePage(cloneId: string, options?: CloneOptions): Promise<void> {
@@ -326,7 +422,7 @@ async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise
     const wpApiUrl = new URL('/wp-json/wp/v2/pages?per_page=50', baseUrl.origin).href;
     const wpRes = await axios.get(wpApiUrl, {
       timeout: 7000,
-      headers: getRandomResidentialHeaders(),
+      headers: browserHeaders(),
       validateStatus: () => true,
     });
     if (Array.isArray(wpRes.data) && wpRes.data.length > 0) {
@@ -354,7 +450,7 @@ async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise
       const smUrl = new URL(smPath, baseUrl.origin).href;
       const smRes = await axios.get(smUrl, {
         timeout: 6000,
-        headers: getRandomResidentialHeaders(),
+        headers: browserHeaders(),
         validateStatus: () => true,
       });
       if (typeof smRes.data === 'string' && smRes.data.includes('<loc>')) {
@@ -430,7 +526,7 @@ async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise
           headers: {
             'User-Agent':
               'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
-            ...getRandomResidentialHeaders(),
+            ...browserHeaders(),
           },
           maxRedirects: 3,
           validateStatus: (s) => s === 200,
@@ -470,7 +566,7 @@ async function cloneWithCheerio(
     data: { status: 'FETCHING', progress: 30 },
   });
 
-  // 1. Download Multi-Tier à prova de bloqueios
+  // 1. Download Multi-Tier à  prova de bloqueios
   const initialFetch = await fetchWithMultiTier(targetUrl);
   let baseUrl = new URL(initialFetch.finalUrl || targetUrl);
 
@@ -505,7 +601,7 @@ async function cloneWithCheerio(
     }
   }
 
-  // 3. Garantir tag <base> para resolução imediata de links e requisições dinâmicas
+  // 3. Garantir tag <base> para resolução imediata de links e requisições dinà¢micas
   if ($('head').length > 0) {
     if ($('base').length === 0) {
       $('head').prepend(`<base href="${baseUrl.origin}/">`);
@@ -727,9 +823,9 @@ async function cloneWithCheerio(
     const pixModalHtml = `
     <div id="roi-pix-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);z-index:999999;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;">
       <div style="background:#0d0e14;border:1px solid rgba(255,255,255,0.15);border-radius:24px;padding:32px;max-width:400px;width:90%;text-align:center;color:#fff;box-shadow:0 25px 50px -12px rgba(0,0,0,0.7);position:relative;">
-        <button onclick="document.getElementById('roi-pix-modal').style.display='none'" style="position:absolute;top:16px;right:16px;background:none;border:none;color:#888;font-size:18px;cursor:pointer;">✕</button>
-        <div style="width:48px;height:48px;border-radius:12px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#10b981;font-weight:bold;font-size:22px;">⚡</div>
-        <h3 style="margin:0 0 8px;font-size:18px;font-weight:bold;">Pagamento Instantâneo PIX</h3>
+        <button onclick="document.getElementById('roi-pix-modal').style.display='none'" style="position:absolute;top:16px;right:16px;background:none;border:none;color:#888;font-size:18px;cursor:pointer;">âœ•</button>
+        <div style="width:48px;height:48px;border-radius:12px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#10b981;font-weight:bold;font-size:22px;">âš¡</div>
+        <h3 style="margin:0 0 8px;font-size:18px;font-weight:bold;">Pagamento Instantà¢neo PIX</h3>
         <p style="margin:0 0 16px;color:#aaa;font-size:12px;">Escaneie o QR Code ou copie a chave abaixo para liberação imediata:</p>
         <div style="background:#fff;padding:12px;border-radius:16px;display:inline-block;margin-bottom:16px;">
           <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(safePixKey)}" alt="QR Code Pix" style="display:block;width:180px;height:180px;" />
@@ -790,7 +886,7 @@ async function cloneWithCheerio(
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-          ...getRandomResidentialHeaders(),
+          ...browserHeaders(),
         },
       });
       if (typeof cssRes.data === 'string') {
@@ -1098,7 +1194,7 @@ async function cloneWithCheerio(
       data: { html: cleanFinalHtml },
     });
     console.log(
-      `[Cloner] ${wiring.formCount} formulário(s) ligado(s) à captura de lead desta plataforma` +
+      `[Cloner] ${wiring.formCount} formulário(s) ligado(s) à  captura de lead desta plataforma` +
         (wiring.skipped > 0 ? `; ${wiring.skipped} sem campos foram preservados como estão` : '')
     );
   } else {
@@ -1397,6 +1493,48 @@ async function cloneWithCheerio(
     }
   }
 
+  // 17.3 Espelhamento de recursos.
+  //
+  // Runs after the optional subpage crawl, so the HTML rewritten is the final one,
+  // and after the form wiring, so the submission endpoint is already local.
+  const mirrorSummary = await mirrorPageAssets(pageRecord.id, {
+    appOrigin,
+    html: cleanFinalHtml,
+    css: aggregatedCss,
+  });
+
+  const existingMeta = ((await prisma.page.findUnique({
+    where: { id: pageRecord.id },
+    select: { meta: true },
+  }))?.meta as Record<string, unknown>) ?? {};
+
+  await prisma.page.update({
+    where: { id: pageRecord.id },
+    data: {
+      ...(mirrorSummary.stored > 0 ? { html: mirrorSummary.html } : {}),
+      meta: {
+        // The crawl pass may already have stored a richer meta object; it wins
+        // over the pre-crawl snapshot so `subpages` is not rolled back.
+        ...pageMeta,
+        ...existingMeta,
+        assetMirror: {
+          stored: mirrorSummary.stored,
+          bytes: mirrorSummary.bytesStored,
+          notes: mirrorSummary.notes,
+        },
+      },
+    },
+  });
+
+  if (mirrorSummary.stored > 0) {
+    cleanFinalHtml = mirrorSummary.html;
+    console.log(
+      `[Cloner] ${mirrorSummary.stored} recurso(s) espelhado(s), ${(mirrorSummary.bytesStored / 1024 / 1024).toFixed(1)}MB — a página não depende mais da origem para esses arquivos`
+    );
+  } else {
+    console.log(`[Cloner] Nenhum recurso espelhado. ${mirrorSummary.notes.join(' ')}`);
+  }
+
   // 18. IA Assistente: Gerar sugestão inicial automática de alta conversão
   try {
     const detectedH1 = $('h1').first().text()?.trim();
@@ -1451,14 +1589,18 @@ async function cloneWithPlaywright(
       });
 
   try {
-    const residentialHeaders = getRandomResidentialHeaders();
+    const extraHeaders = browserHeaders();
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-      extraHTTPHeaders: residentialHeaders,
+      extraHTTPHeaders: extraHeaders,
     });
     const page = await context.newPage();
+
+    // Installed before navigation: the calls a single-page funnel makes on load
+    // are precisely the ones worth capturing, and they fire during first paint.
+    const recorder = installCaptureRecorder(page, { appOrigin: getAppUrl() });
 
     await page.route('**/*', (route) => {
       const type = route.request().resourceType();
@@ -1483,7 +1625,7 @@ async function cloneWithPlaywright(
     if (isBlocked) {
       console.warn(`[Cloner] Playwright detectou bloqueio/cloaker (status ${status}). Tentando perfil alternativo iPhone...`);
       await page.setExtraHTTPHeaders({
-        ...getRandomResidentialHeaders(),
+        ...browserHeaders(),
         Referer: 'https://www.google.com.br/',
       });
       const retryResponse = await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -1677,18 +1819,67 @@ async function cloneWithPlaywright(
 
     if (pwWiring.formCount > 0) {
       finalHtml = pwWiring.html;
-      await prisma.page.update({
-        where: { id: pageRecord.id },
-        data: {
-          html: finalHtml,
-          meta: {
-            ...playwrightMeta,
-            formWiring: { formCount: pwWiring.formCount, skipped: pwWiring.skipped },
-          },
-        },
-      });
       console.log(`[Cloner/Playwright] ${pwWiring.formCount} formulário(s) ligado(s) à captura de lead`);
     }
+
+    // 17.2b Replay das chamadas de API.
+    //
+    // Only available here, and only in this engine: observing the requests needs
+    // a real browser, which the Cheerio path does not have. When nothing was
+    // observed the page still ships, and the report says so rather than implying
+    // a capture happened.
+    const captureSummary = await recorder.persist(pageRecord.id);
+    if (captureSummary.recorded > 0) {
+      finalHtml = finalHtml.replace(
+        /<\/body>/i,
+        `${buildReplayScript(manifestUrlFor(pageRecord.id), pwOrigin)}</body>`
+      );
+      console.log(
+        `[Cloner/Playwright] ${captureSummary.recorded} chamada(s) de API gravada(s) para replay`
+      );
+    } else {
+      console.log(
+        '[Cloner/Playwright] Nenhuma chamada de API observada durante a clonagem; replay não aplicado'
+      );
+    }
+
+    // 17.2c Espelhamento dos recursos.
+    const mirrorSummary = await mirrorPageAssets(pageRecord.id, {
+      appOrigin: pwOrigin,
+      html: finalHtml,
+      css: cssRules,
+    });
+    if (mirrorSummary.stored > 0) {
+      finalHtml = mirrorSummary.html;
+      console.log(
+        `[Cloner/Playwright] ${mirrorSummary.stored} recurso(s) espelhado(s), ${(mirrorSummary.bytesStored / 1024 / 1024).toFixed(1)}MB`
+      );
+    }
+
+    await prisma.page.update({
+      where: { id: pageRecord.id },
+      data: {
+        html: finalHtml,
+        meta: {
+          ...playwrightMeta,
+          ...(pwWiring.formCount > 0
+            ? { formWiring: { formCount: pwWiring.formCount, skipped: pwWiring.skipped } }
+            : {}),
+          ...(captureSummary.recorded > 0
+            ? { apiCapture: { recorded: captureSummary.recorded, notes: captureSummary.notes } }
+            : {}),
+          ...(mirrorSummary.stored > 0
+            ? {
+                assetMirror: {
+                  stored: mirrorSummary.stored,
+                  bytes: mirrorSummary.bytesStored,
+                  notes: mirrorSummary.notes,
+                },
+              }
+            : {}),
+        },
+      },
+    });
 
     async function saveNode(node: ElementNode, parentId: string | null = null, position: number = 0, depth: number = 0) {
       if (depth > 2) return;

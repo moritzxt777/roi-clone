@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Form wiring for cloned pages.
  *
  * The cloner rewrote links and images but left every `<form>` exactly as the
@@ -26,8 +26,8 @@
  */
 
 import * as cheerio from 'cheerio';
-import type { Cheerio, CheerioElement } from 'cheerio';
-import type { Element } from 'domhandler';
+import type { Cheerio } from 'cheerio';
+import type { AnyNode, Element } from 'domhandler';
 
 /** Field name the honeypot uses. No real form has it, no bot skips it. */
 export const HONEYPOT_FIELD = '_roi_hp';
@@ -58,7 +58,7 @@ function absolute(value: string | undefined, fallback: string): string {
   }
 }
 
-function shouldRewire($form: Cheerio<Element>): boolean {
+function shouldRewire($form: Cheerio<AnyNode>): boolean {
   const method = ($form.attr('method') || '').trim().toLowerCase();
 
   if (method === 'get') return false;

@@ -248,7 +248,9 @@ section('Coerção para JSON — o banco não pode rejeitar um lead');
     funcao: () => 'x',
     naoNumero: Number.NaN,
     infinito: Number.POSITIVE_INFINITY,
-    grande: 10n,
+    // Written as a call rather than a literal: the project targets ES2017, where
+    // a BigInt literal is a syntax error, but the value is still reachable.
+    grande: BigInt(10),
     data: new Date('2024-03-11T14:22:33Z'),
     erro: new Error('falhou'),
     lista: [1, 'dois', true, null],

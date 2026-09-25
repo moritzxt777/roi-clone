@@ -23,9 +23,11 @@ import {
   Wand2,
   Check,
   Archive,
+  ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-
+import { CloneInspector } from '@/components/clone-inspector';
 interface CloneItem {
   id: string;
   name: string;
@@ -33,6 +35,7 @@ interface CloneItem {
   status: 'PENDING' | 'FETCHING' | 'ANALYZING' | 'RECONSTRUCTING' | 'COMPLETED' | 'FAILED';
   progress: number;
   createdAt: string;
+  pageId?: string | null;
   page?: {
     id: string;
     slug: string;
@@ -59,6 +62,13 @@ export default function ClonesManagementPage() {
   const [aiSuggestionMsg, setAiSuggestionMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Which clone card has the inspector open. Only one at a time, because each
+  // open inspector polls its own inventory.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const toggleInspector = (pageId: string) => {
+    setExpandedId((current) => (current === pageId ? null : pageId));
+  };
 
   // Modal de exclusão personalizado
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -430,6 +440,21 @@ export default function ClonesManagementPage() {
                           <ExternalLink className="w-4 h-4" />
                         </a>
                       )}
+
+                      {clone.pageId && (
+                        <button
+                          type="button"
+                          onClick={() => toggleInspector(clone.pageId as string)}
+                          className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+                          title="Inspecionar clone: saúde dos recursos, assets espelhados e chamadas de API gravadas"
+                        >
+                          {expandedId === clone.pageId ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
                     </div>
 
                     <button
@@ -440,6 +465,12 @@ export default function ClonesManagementPage() {
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
+
+                  {expandedId === clone.pageId && clone.pageId && (
+                    <div className="mt-4 pt-4 border-t border-white/10">
+                      <CloneInspector pageId={clone.pageId} />
+                    </div>
+                  )}
                 </div>
               );
             })}
