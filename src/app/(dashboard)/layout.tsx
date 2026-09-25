@@ -19,13 +19,19 @@ import {
   ExternalLink,
   Sparkles,
   Flame,
-  ShieldAlert
+  ShieldAlert,
+  ShieldCheck,
+  Fingerprint,
+  Newspaper
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Início', href: '/dashboard', icon: Home },
   { name: 'Projetos', href: '/dashboard/clones', icon: Layers },
-  { name: 'Ofertas', href: '/dashboard/ofertas', icon: Flame, badge: 'NOVO' },
+  { name: 'Camuflador ADS', href: '/dashboard/camuflador', icon: Fingerprint, badge: 'ANTI-BLOCK' },
+  { name: 'Advertoriais', href: '/dashboard/advertoriais', icon: Newspaper, badge: 'NOVO' },
+  { name: 'Cloaker Nativo', href: '/dashboard/cloaker', icon: ShieldCheck, badge: 'PRO' },
+  { name: 'Ofertas', href: '/dashboard/ofertas', icon: Flame },
   { name: 'ROI IA Copilot', href: '/dashboard/ai', icon: Sparkles },
   { name: 'Leads', href: '/dashboard/forms', icon: Users },
   { name: 'Configurações', href: '/dashboard/settings', icon: Settings },
@@ -103,11 +109,7 @@ export default function DashboardLayout({
     ? [
         navigation[0],
         { name: 'Painel Admin', href: '/moritzadmin171roi', icon: ShieldAlert, badge: 'MASTER', isAdmin: true },
-        navigation[1],
-        navigation[2],
-        navigation[3],
-        navigation[4],
-        navigation[5],
+        ...navigation.slice(1),
       ]
     : navigation;
 

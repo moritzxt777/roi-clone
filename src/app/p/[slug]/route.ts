@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { evaluateCloaker, CloakerConfig } from '@/lib/cloaker-engine';
 
 export async function GET(
   req: NextRequest,
@@ -21,6 +22,102 @@ export async function GET(
       clones: { take: 1 }
     }
   });
+
+  // Verificação de Cloaker Nativo
+  const pageMeta = (page?.meta as any) || {};
+  const cloakerConfig: CloakerConfig | undefined = pageMeta?.cloaker;
+
+  if (page && cloakerConfig && cloakerConfig.enabled) {
+    const evaluation = evaluateCloaker(req, cloakerConfig);
+
+    if (evaluation.isBlocked) {
+      // Registrar incremento nos stats da White Page de forma assíncrona
+      prisma.page.update({
+        where: { id: page.id },
+        data: {
+          meta: {
+            ...pageMeta,
+            cloaker: {
+              ...cloakerConfig,
+              stats: {
+                totalHits: (cloakerConfig.stats?.totalHits || 0) + 1,
+                whiteHits: (cloakerConfig.stats?.whiteHits || 0) + 1,
+                blackHits: cloakerConfig.stats?.blackHits || 0,
+                lastHitAt: new Date().toISOString(),
+                lastBlockedReason: evaluation.reason,
+              },
+            },
+          },
+        },
+      }).catch(() => {});
+
+      // Ação 1: Redirecionamento 302 para White Page
+      if (cloakerConfig.action === 'redirect_white' && cloakerConfig.whitePageUrl) {
+        return NextResponse.redirect(cloakerConfig.whitePageUrl, 302);
+      }
+
+      // Ação 2: Renderizar White Page diretamente na mesma URL (sem redirecionamento)
+      if (cloakerConfig.whitePageHtml) {
+        return new NextResponse(cloakerConfig.whitePageHtml, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store, max-age=0',
+          },
+        });
+      }
+
+      if (cloakerConfig.whitePageUrl) {
+        try {
+          const whiteRes = await fetch(cloakerConfig.whitePageUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (whiteRes.ok) {
+            const whiteHtml = await whiteRes.text();
+            return new NextResponse(whiteHtml, {
+              status: 200,
+              headers: {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Cache-Control': 'no-store, max-age=0',
+              },
+            });
+          }
+        } catch (fetchErr) {
+          return NextResponse.redirect(cloakerConfig.whitePageUrl, 302);
+        }
+      }
+
+      // Fallback White Page institucional
+      const fallbackWhiteHtml = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>Portal Oficial - Artigo Informativo</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family:sans-serif;background:#f9fafb;color:#111;padding:40px 20px;max-width:700px;margin:0 auto;line-height:1.6;"><h2>Conteúdo Informativo e Educacional</h2><p>Esta página é dedicada à publicação de artigos, comunicados de imprensa e novidades do setor de forma transparente e em conformidade com as diretrizes de publicidade online.</p><hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"><p style="font-size:12px;color:#6b7280;">© ${new Date().getFullYear()} - Todos os direitos reservados.</p></body></html>`;
+      return new NextResponse(fallbackWhiteHtml, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    } else {
+      // Tráfego limpo liberado para a Black Page
+      prisma.page.update({
+        where: { id: page.id },
+        data: {
+          meta: {
+            ...pageMeta,
+            cloaker: {
+              ...cloakerConfig,
+              stats: {
+                totalHits: (cloakerConfig.stats?.totalHits || 0) + 1,
+                blackHits: (cloakerConfig.stats?.blackHits || 0) + 1,
+                whiteHits: cloakerConfig.stats?.whiteHits || 0,
+                lastHitAt: new Date().toISOString(),
+              },
+            },
+          },
+        },
+      }).catch(() => {});
+    }
+  }
 
   let htmlContent = page?.html;
   let cssContent = page?.css;
