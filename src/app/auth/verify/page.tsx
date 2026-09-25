@@ -19,7 +19,7 @@ function VerifyContent() {
 
     // Redireciona imediatamente se estiver no domínio interno da Vercel
     if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
-      window.location.replace(`https://www.roi-clone.site/auth/verify${window.location.search}${window.location.hash}`);
+      window.location.replace(`https://roi-clone.site/auth/verify${window.location.search}${window.location.hash}`);
       return;
     }
 

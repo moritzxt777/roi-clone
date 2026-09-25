@@ -10,7 +10,7 @@ export const proxy = auth((req) => {
   if (cleanHost.includes('vercel.app')) {
     const url = req.nextUrl.clone();
     url.protocol = 'https';
-    url.host = 'www.roi-clone.site';
+    url.host = 'roi-clone.site';
     url.port = '';
     return NextResponse.redirect(url, 308);
   }
