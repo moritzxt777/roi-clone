@@ -109,7 +109,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         const isMaster = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' || user.email.toLowerCase() === 'moritzadmin777roi@gmail.com';
-        if (!user.emailVerified && !isMaster) {
+        const hasEmailService = !!(process.env.RESEND_API_KEY || process.env.EMAIL_SERVER_HOST);
+        if (hasEmailService && !user.emailVerified && !isMaster) {
           throw new Error('E-mail pendente de confirmação. Por favor, abra seu e-mail e clique no link de validação para liberar o acesso.');
         }
 

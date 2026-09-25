@@ -44,13 +44,14 @@ export async function POST(request: NextRequest) {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
+    const hasEmailService = !!(process.env.RESEND_API_KEY || process.env.EMAIL_SERVER_HOST);
 
     const user = await prisma.user.create({
       data: {
         name,
         email: cleanEmail,
         passwordHash,
-        emailVerified: null,
+        emailVerified: hasEmailService ? null : new Date(),
       },
       select: {
         id: true,
@@ -128,9 +129,12 @@ export async function POST(request: NextRequest) {
         user, 
         emailSent, 
         emailError, 
-        message: emailSent 
-          ? 'Conta criada com sucesso! Enviamos um link de confirmação para o seu e-mail.' 
-          : 'Conta criada com sucesso! Por favor, acerte a confirmação no seu e-mail.' 
+        autoVerified: !hasEmailService,
+        message: hasEmailService
+          ? (emailSent 
+              ? 'Conta criada com sucesso! Enviamos um link de confirmação para o seu e-mail.' 
+              : 'Conta criada com sucesso! Por favor, acerte a confirmação no seu e-mail.')
+          : 'Conta criada com sucesso! Seu acesso foi liberado imediatamente.',
       },
       { status: 201 }
     );

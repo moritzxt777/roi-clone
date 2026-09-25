@@ -112,8 +112,18 @@ export default function RegisterForm() {
         return;
       }
 
-      // Conta criada: NÃO entra no dashboard ainda!
-      // Exibe a tela com instruções de confirmação
+      if (data.autoVerified) {
+        const loginRes = await signIn('credentials', {
+          email: formData.email,
+          password: formData.password,
+          redirect: false,
+        });
+        if (loginRes?.ok) {
+          window.location.href = '/dashboard';
+          return;
+        }
+      }
+
       setRegisteredEmail(formData.email);
       setDeliveryInfo({
         sent: data.emailSent ?? true,
