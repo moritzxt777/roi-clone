@@ -28,9 +28,9 @@
 import { createHash } from 'crypto';
 import { collectAssetReferences, collectAssetUrls } from './clone-health';
 
-export const DEFAULT_MAX_ASSETS = 50;
+export const DEFAULT_MAX_ASSETS = 35;
 export const DEFAULT_MAX_ASSET_BYTES = 2 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 6_000;
+const REQUEST_TIMEOUT_MS = 3_500;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
@@ -257,9 +257,9 @@ export async function mirrorAssets(
 
   const selected = candidates.slice(0, maxAssets);
 
-  // Process assets in concurrent batches of 5:
-  // drastically faster than sequential (from 50s down to 3-5s) while avoiding origin rate-limiting
-  const CONCURRENCY = 5;
+  // Process assets in concurrent batches of 8:
+  // drastically faster than sequential (from 50s down to 2-3s) while avoiding origin rate-limiting
+  const CONCURRENCY = 8;
   for (let i = 0; i < selected.length; i += CONCURRENCY) {
     const chunk = selected.slice(i, i + CONCURRENCY);
     await Promise.all(

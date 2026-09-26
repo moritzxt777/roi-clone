@@ -68,12 +68,24 @@ async function mirrorPageAssets(
           }
 
           try {
+            let targetStorageKey = asset.storageKey;
+            const existingWithKey = await prisma.cloneAsset.findUnique({
+              where: { pageId_storageKey: { pageId, storageKey: targetStorageKey } },
+              select: { id: true, sourceUrl: true },
+            });
+
+            if (existingWithKey && existingWithKey.sourceUrl !== asset.sourceUrl) {
+              const ext = targetStorageKey.split('.').pop() || 'bin';
+              targetStorageKey = `${asset.checksum.slice(0, 16)}-${Buffer.from(asset.sourceUrl).toString('hex').slice(0, 8)}.${ext}`;
+              asset.storageKey = targetStorageKey;
+            }
+
             await prisma.cloneAsset.upsert({
               where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
               create: {
                 pageId,
                 sourceUrl: asset.sourceUrl,
-                storageKey: asset.storageKey,
+                storageKey: targetStorageKey,
                 contentType: asset.contentType,
                 size: asset.size,
                 checksum: asset.checksum,
@@ -81,7 +93,7 @@ async function mirrorPageAssets(
                 data: toPrismaBytes(bytes),
               },
               update: {
-                storageKey: asset.storageKey,
+                storageKey: targetStorageKey,
                 contentType: asset.contentType,
                 size: asset.size,
                 checksum: asset.checksum,
@@ -91,34 +103,8 @@ async function mirrorPageAssets(
               },
             });
           } catch (upsertErr: any) {
-            // Se storageKey já foi gravado por outra sourceUrl com mesmo conteúdo exato,
-            // gera uma storageKey com hash da sourceUrl para garantir unicidade
-            if (upsertErr?.code === 'P2002') {
-              const ext = asset.storageKey.split('.').pop() || 'bin';
-              const uniqueKey = `${asset.checksum.slice(0, 20)}-${Buffer.from(asset.sourceUrl).toString('hex').slice(0, 10)}.${ext}`;
-              await prisma.cloneAsset.upsert({
-                where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
-                create: {
-                  pageId,
-                  sourceUrl: asset.sourceUrl,
-                  storageKey: uniqueKey,
-                  contentType: asset.contentType,
-                  size: asset.size,
-                  checksum: asset.checksum,
-                  status: 'READY',
-                  data: toPrismaBytes(bytes),
-                },
-                update: {
-                  storageKey: uniqueKey,
-                  contentType: asset.contentType,
-                  size: asset.size,
-                  checksum: asset.checksum,
-                  status: 'READY',
-                  error: null,
-                  data: toPrismaBytes(bytes),
-                },
-              }).catch(() => {});
-            }
+            if (upsertErr?.code === 'P2002') return;
+            console.warn('[Cloner] Asset store notice:', upsertErr?.message || upsertErr);
           }
         } catch (err: any) {
           // If the unique constraint on (pageId, storageKey) triggers, the asset is already saved
@@ -417,20 +403,6 @@ function checkHtmlRedirect(html: string, currentUrl: URL): string | null {
  * 4. Auto-Descoberta Profunda de Páginas de Vendas (Cloaker Bypass)
  */
 async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise<{ html: string; finalUrl: URL }> {
-  const hasStrongOfferMarkers =
-    initialHtml.length > 45000 &&
-    /kiwify|hotmart|monetizze|eduzz|braip|perfectpay|cakto|kirvano|pepper|checkout|comprar|adquirir|pagar|garantir|vsl|oferta/i.test(
-      initialHtml
-    );
-
-  const isDefaultEmptyWp =
-    initialHtml.includes('Welcome to WordPress. This is your first post') ||
-    (initialHtml.includes('Welcome to WordPress') && initialHtml.includes('Hello world!')) ||
-    (initialHtml.includes('wp-content') && initialHtml.includes('Hello world!') && initialHtml.length < 50000) ||
-    initialHtml.includes('Just another WordPress site') ||
-    initialHtml.includes('Welcome to your new site') ||
-    ((baseUrl.pathname === '/' || baseUrl.pathname === '') && initialHtml.length < 20000);
-
   // Redirecionamento explícito
   const redirectTarget = checkHtmlRedirect(initialHtml, baseUrl);
   if (redirectTarget) {
@@ -443,7 +415,17 @@ async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise
     } catch {}
   }
 
-  if (!isDefaultEmptyWp && hasStrongOfferMarkers) {
+  // Se for uma página WordPress padrão vazia de instalação nova
+  const isDefaultEmptyWp =
+    initialHtml.includes('Welcome to WordPress. This is your first post') ||
+    (initialHtml.includes('Welcome to WordPress') && initialHtml.includes('Hello world!')) ||
+    (initialHtml.includes('wp-content') && initialHtml.includes('Hello world!') && initialHtml.length < 50000) ||
+    initialHtml.includes('Just another WordPress site') ||
+    initialHtml.includes('Welcome to your new site');
+
+  // Se a URL possui um caminho específico (ex: /checkout/..., /oferta) OU já tem conteúdo real (> 3000 chars ou termos de oferta)
+  const hasSpecificPath = baseUrl.pathname !== '/' && baseUrl.pathname !== '';
+  if (!isDefaultEmptyWp && (hasSpecificPath || initialHtml.length > 3000 || /kiwify|hotmart|monetizze|eduzz|braip|perfectpay|cakto|kirvano|pepper|checkout|comprar|adquirir|pagar|garantir|vsl|oferta/i.test(initialHtml))) {
     return { html: initialHtml, finalUrl: baseUrl };
   }
 
