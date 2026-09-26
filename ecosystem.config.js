@@ -9,8 +9,8 @@ module.exports = {
       script: 'npm',
       args: 'start',
       cwd: '/var/www/roi-clone',
-      max_memory_restart: '420M',
-      node_args: '--max-old-space-size=512',
+      max_memory_restart: '850M',
+      node_args: '--max-old-space-size=1024',
       env: {
         ...process.env,
         NODE_ENV: 'production',
