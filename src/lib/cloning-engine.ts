@@ -49,21 +49,26 @@ async function mirrorPageAssets(
       async (asset, bytes) => {
         try {
           if (asset.status !== 'READY') {
-            await prisma.cloneAsset.upsert({
-              where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
-              create: {
-                pageId,
-                sourceUrl: asset.sourceUrl,
-                storageKey: asset.storageKey || `failed-${Buffer.from(asset.sourceUrl).toString('base64url').slice(0, 40)}`,
-                contentType: asset.contentType,
-                size: asset.size,
-                checksum: asset.checksum,
-                status: asset.status,
-                error: asset.error,
-                data: toPrismaBytes(bytes),
-              },
-              update: { status: asset.status, error: asset.error, size: asset.size },
-            });
+            try {
+              const safeFailedKey = asset.storageKey || `failed-${Buffer.from(asset.sourceUrl).toString('base64url').slice(0, 32)}-${Math.random().toString(36).slice(2, 7)}`;
+              await prisma.cloneAsset.upsert({
+                where: { pageId_sourceUrl: { pageId, sourceUrl: asset.sourceUrl } },
+                create: {
+                  pageId,
+                  sourceUrl: asset.sourceUrl,
+                  storageKey: safeFailedKey,
+                  contentType: asset.contentType,
+                  size: asset.size,
+                  checksum: asset.checksum,
+                  status: asset.status,
+                  error: asset.error,
+                  data: toPrismaBytes(bytes),
+                },
+                update: { status: asset.status, error: asset.error, size: asset.size },
+              });
+            } catch (failedErr: any) {
+              if (failedErr?.code === 'P2002') return;
+            }
             return;
           }
 

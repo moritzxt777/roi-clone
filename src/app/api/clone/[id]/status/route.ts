@@ -14,11 +14,33 @@ export async function GET(
 
     const cloneId = (await params).id;
 
+    let targetUserId = session.user.id;
+    let isAdmin = false;
+
+    if (session.user.email) {
+      const emailLower = session.user.email.toLowerCase();
+      const dbUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            ...(targetUserId ? [{ id: targetUserId }] : []),
+            { email: emailLower },
+          ],
+        },
+        select: { id: true, role: true },
+      });
+      if (dbUser) {
+        targetUserId = dbUser.id;
+        isAdmin =
+          dbUser.role === 'ADMIN' ||
+          emailLower === 'moritzadmin777roi@gmail.com' ||
+          emailLower === 'moritzdoblack@proton.me';
+      }
+    }
+
+    const whereCondition = isAdmin ? { id: cloneId } : { id: cloneId, userId: targetUserId };
+
     const clone = await prisma.clone.findFirst({
-      where: {
-        id: cloneId,
-        userId: session.user.id,
-      },
+      where: whereCondition,
       select: {
         status: true,
         progress: true,
