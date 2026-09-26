@@ -42,7 +42,17 @@ export async function GET(request: NextRequest) {
 
     const clones = await prisma.clone.findMany({
       where: whereCondition,
-      include: {
+      select: {
+        id: true,
+        name: true,
+        sourceUrl: true,
+        status: true,
+        progress: true,
+        error: true,
+        pageId: true,
+        createdAt: true,
+        updatedAt: true,
+        completedAt: true,
         page: { select: { id: true, name: true, slug: true, domainId: true } },
       },
       orderBy: { createdAt: 'desc' },

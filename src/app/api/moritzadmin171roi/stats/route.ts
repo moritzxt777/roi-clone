@@ -49,7 +49,12 @@ export async function GET(req: NextRequest) {
       prisma.clone.findMany({
         take: 8,
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          sourceUrl: true,
+          createdAt: true,
           user: { select: { email: true, name: true } },
           page: { select: { slug: true } }
         }

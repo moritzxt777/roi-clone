@@ -38,7 +38,17 @@ export async function GET(req: NextRequest) {
       where,
       orderBy: { createdAt: 'desc' },
       take: 100,
-      include: {
+      select: {
+        id: true,
+        name: true,
+        sourceUrl: true,
+        status: true,
+        progress: true,
+        error: true,
+        pageId: true,
+        createdAt: true,
+        updatedAt: true,
+        completedAt: true,
         user: {
           select: { id: true, name: true, email: true }
         },
