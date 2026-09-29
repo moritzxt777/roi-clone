@@ -30,8 +30,15 @@ export const pageSchema = z.object({
 
 const urlPreprocess = z.preprocess((val) => {
   if (typeof val !== 'string') return val;
-  const trimmed = val.trim();
+  let trimmed = val.trim();
   if (!trimmed) return trimmed;
+  // Se o usuário colou formato Markdown [texto](url)
+  const mdMatch = trimmed.match(/\[.*?\]\((https?:\/\/[^\s)]+)\)/i);
+  if (mdMatch) {
+    trimmed = mdMatch[1].trim();
+  } else {
+    trimmed = trimmed.replace(/^<|>$/g, '').replace(/^["']|["']$/g, '');
+  }
   if (!/^https?:\/\//i.test(trimmed)) {
     return `https://${trimmed}`;
   }
@@ -40,8 +47,14 @@ const urlPreprocess = z.preprocess((val) => {
 
 const optionalUrlPreprocess = z.preprocess((val) => {
   if (typeof val !== 'string') return val;
-  const trimmed = val.trim();
+  let trimmed = val.trim();
   if (!trimmed) return '';
+  const mdMatch = trimmed.match(/\[.*?\]\((https?:\/\/[^\s)]+)\)/i);
+  if (mdMatch) {
+    trimmed = mdMatch[1].trim();
+  } else {
+    trimmed = trimmed.replace(/^<|>$/g, '').replace(/^["']|["']$/g, '');
+  }
   if (!/^https?:\/\//i.test(trimmed)) {
     return `https://${trimmed}`;
   }

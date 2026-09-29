@@ -158,10 +158,18 @@ export default function ClonesManagementPage() {
     setErrorMsg(null);
 
     try {
+      let cleanUrl = targetUrl.trim();
+      const mdMatch = cleanUrl.match(/\[.*?\]\((https?:\/\/[^\s)]+)\)/i);
+      if (mdMatch) {
+        cleanUrl = mdMatch[1].trim();
+      } else {
+        cleanUrl = cleanUrl.replace(/^<|>$/g, '').replace(/^["']|["']$/g, '');
+      }
+
       let finalName = projectName.trim();
       if (!finalName) {
         try {
-          finalName = new URL(targetUrl).hostname;
+          finalName = new URL(cleanUrl).hostname;
         } catch {
           finalName = 'novo-projeto';
         }
@@ -171,7 +179,7 @@ export default function ClonesManagementPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sourceUrl: targetUrl,
+          sourceUrl: cleanUrl,
           name: finalName,
           newCheckoutUrl: newCheckoutUrl.trim() || undefined,
           pixKey: pixKey.trim() || undefined,

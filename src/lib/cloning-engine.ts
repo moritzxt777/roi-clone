@@ -314,16 +314,25 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
         ...(proxy ? { proxy } : {}),
       });
 
-      if (res.data && typeof res.data === 'string' && res.data.length > 500) {
+      if (res.data && typeof res.data === 'string' && res.data.length > 200) {
         const isCfBlock =
           res.data.includes('cf-browser-verification') ||
           res.data.includes('Just a moment...') ||
           res.data.includes('Attention Required! | Cloudflare') ||
           res.data.includes('403 - Forbidden') ||
           res.data.includes('Access to this page is forbidden');
-        if (!isCfBlock) {
+
+        // Se a resposta for um cloaker que tenta bloquear desktop (redireciona para /404bbb ou tela de verificação desktop)
+        const isAntiDesktopTrap =
+          res.data.includes('FaucpR.win') ||
+          res.data.includes('/404bbb') ||
+          (res.data.includes('Verification page') && tier.name.includes('Desktop'));
+
+        if (!isCfBlock && !isAntiDesktopTrap) {
           const finalUrl = res.request?.res?.responseUrl || targetUrl;
           return { html: res.data, finalUrl };
+        } else if (isAntiDesktopTrap) {
+          console.log(`[Cloner] Tier '${tier.name}' acionou armadilha anti-desktop do cloaker. Prosseguindo para tier mobile...`);
         }
       }
     } catch (err: any) {
@@ -349,6 +358,19 @@ async function fetchWithMultiTier(targetUrl: string): Promise<{ html: string; fi
   }
 
   if (lastError) throw lastError;
+
+  let urlPath = '';
+  try {
+    const parsed = new URL(targetUrl);
+    urlPath = parsed.pathname;
+  } catch {}
+
+  if (urlPath === '/' || urlPath === '') {
+    throw new Error(
+      `Não foi possível obter o conteúdo de "${targetUrl}". A raiz do domínio retornou vazia ou com proteção anti-bot. Se este link for de um anúncio, quiz ou cloaker, você deve colar o link COMPLETO com o caminho e parâmetros (ex: ${targetUrl}caminho-completo?param=valor).`
+    );
+  }
+
   throw new Error('Não foi possível obter o conteúdo HTML da página.');
 }
 
@@ -378,9 +400,12 @@ function rewriteCssUrls(css: string, baseUrl: URL): string {
 }
 
 /**
- * 3. Detecção e acompanhamento de redirecionamentos HTML / JS
+ * 3. Detecção e acompanhamento de redirecionamentos HTML / JS e Cloakers Multi-hop
  */
-function checkHtmlRedirect(html: string, currentUrl: URL): string | null {
+function extractAdvancedRedirect(html: string, currentUrl: URL): string | null {
+  if (!html || typeof html !== 'string') return null;
+
+  // A. Meta refresh
   const metaMatch = html.match(/<meta[^>]*http-equiv=["']?refresh["']?[^>]*content=["'][^"']*url=([^"'>]+)["']/i);
   if (metaMatch && metaMatch[1]) {
     try {
@@ -389,35 +414,75 @@ function checkHtmlRedirect(html: string, currentUrl: URL): string | null {
     } catch {}
   }
 
-  if (html.length < 3000) {
-    const jsMatch =
-      html.match(/(?:window\.)?location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i) ||
-      html.match(/location\.replace\(['"]([^'"]+)['"]\)/i) ||
-      html.match(/location\.assign\(['"]([^'"]+)['"]\)/i);
-    if (jsMatch && jsMatch[1]) {
+  // B. Cloakers / Redirecionamento condicional de mobile (ex: top.location.href = `/ucBUMJC/.../${Date.now()}` + location.search)
+  const mobileRedirectMatch =
+    html.match(/(?:top\.|window\.|window\.top\.)?location(?:\.href)?\s*=\s*`([^`]+)`(?:\s*\+\s*location\.search)?/i) ||
+    html.match(/(?:top\.|window\.|window\.top\.)?location(?:\.href)?\s*=\s*['"]([^'"]+)['"](?:\s*\+\s*location\.search)?/i);
+
+  if (mobileRedirectMatch && mobileRedirectMatch[1]) {
+    let rawPath = mobileRedirectMatch[1];
+    rawPath = rawPath.replace(/\$\{Date\.now\(\)\}/g, Date.now().toString());
+
+    const queryString = currentUrl.search;
+    if (html.includes('location.search') && !rawPath.includes('?') && queryString) {
+      rawPath += queryString;
+    }
+
+    try {
+      const dest = new URL(rawPath, currentUrl.href).href;
+      if (dest !== currentUrl.href && !dest.includes('404')) return dest;
+    } catch {}
+  }
+
+  // C. Redirecionamentos Javascript padrão
+  const stdMatch =
+    html.match(/(?:window\.|top\.)?location(?:\.href)?\s*=\s*['"`]([^'"`]+)['"`]/i) ||
+    html.match(/location\.(?:replace|assign)\(['"`]([^'"`]+)['"`]\)/i);
+
+  if (stdMatch && stdMatch[1]) {
+    const raw = stdMatch[1].trim();
+    if (!raw.includes('404') && !raw.startsWith('javascript:')) {
       try {
-        const dest = new URL(jsMatch[1].trim(), currentUrl.href).href;
+        const dest = new URL(raw, currentUrl.href).href;
         if (dest !== currentUrl.href) return dest;
       } catch {}
     }
   }
+
   return null;
 }
 
 /**
- * 4. Auto-Descoberta Profunda de Páginas de Vendas (Cloaker Bypass)
+ * 4. Auto-Descoberta Profunda de Páginas de Vendas (Cloaker Bypass e Funis Dinâmicos)
  */
 async function discoverRealSalesPage(initialHtml: string, baseUrl: URL): Promise<{ html: string; finalUrl: URL }> {
-  // Redirecionamento explícito
-  const redirectTarget = checkHtmlRedirect(initialHtml, baseUrl);
-  if (redirectTarget) {
+  // A. Seguir cadeia de redirecionamentos (suporta até 6 saltos automáticos)
+  let currentHtml = initialHtml;
+  let currentUrl = baseUrl;
+  let hops = 0;
+
+  while (hops < 6) {
+    const redirectTarget = extractAdvancedRedirect(currentHtml, currentUrl);
+    if (!redirectTarget) break;
+
     try {
-      console.log(`[Cloner] Redirecionamento detectado para: ${redirectTarget}`);
+      console.log(`[Cloner] Redirecionamento/Cloaker detectado (hop ${hops + 1}) para: ${redirectTarget}`);
       const redirected = await fetchWithMultiTier(redirectTarget);
-      if (redirected.html && redirected.html.length > 1000) {
-        return { html: redirected.html, finalUrl: new URL(redirectTarget) };
+      if (redirected.html && redirected.html.length > 200) {
+        currentHtml = redirected.html;
+        currentUrl = new URL(redirected.finalUrl || redirectTarget);
+        hops++;
+      } else {
+        break;
       }
-    } catch {}
+    } catch (err: any) {
+      console.warn(`[Cloner] Falha ao seguir redirecionamento para ${redirectTarget}:`, err.message || err);
+      break;
+    }
+  }
+
+  if (hops > 0) {
+    return { html: currentHtml, finalUrl: currentUrl };
   }
 
   // Se for uma página WordPress padrão vazia de instalação nova
@@ -656,6 +721,29 @@ async function cloneWithCheerio(
     $('head').append(antiBlankShield);
   } else {
     $('body').prepend(antiBlankShield);
+  }
+
+  // 4.5 Injetar Interceptor de Fetch para SPAs / Vite / Vue / React (resolve /base.json e endpoints relativos contra a origem alvo)
+  const spaFetchInterceptor = `
+<script id="roi-spa-fetch-interceptor">
+  (function() {
+    var targetOrigin = "${baseUrl.origin}";
+    var origFetch = window.fetch;
+    if (origFetch) {
+      window.fetch = function(resource, init) {
+        if (typeof resource === 'string' && resource.startsWith('/') && !resource.startsWith('/api/pages/') && !resource.startsWith('/api/checkout') && !resource.startsWith('/api/clone-forms') && !resource.startsWith('/api/clones')) {
+          resource = targetOrigin + resource;
+        }
+        return origFetch.call(this, resource, init);
+      };
+    }
+  })();
+</script>
+`;
+  if ($('head').length > 0) {
+    $('head').prepend(spaFetchInterceptor);
+  } else {
+    $('body').prepend(spaFetchInterceptor);
   }
 
   // 5. Converter URLs relativas em absolutas (stylesheets, links, scripts)

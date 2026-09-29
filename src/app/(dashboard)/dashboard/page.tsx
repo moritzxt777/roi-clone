@@ -106,9 +106,17 @@ export default function DashboardPage() {
     setError(null);
 
     try {
+      let cleanUrl = url.trim();
+      const mdMatch = cleanUrl.match(/\[.*?\]\((https?:\/\/[^\s)]+)\)/i);
+      if (mdMatch) {
+        cleanUrl = mdMatch[1].trim();
+      } else {
+        cleanUrl = cleanUrl.replace(/^<|>$/g, '').replace(/^["']|["']$/g, '');
+      }
+
       let hostname = 'projeto';
       try {
-        hostname = new URL(url).hostname;
+        hostname = new URL(cleanUrl).hostname;
       } catch {
         hostname = 'pagina-clonada';
       }
@@ -117,7 +125,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sourceUrl: url,
+          sourceUrl: cleanUrl,
           name: hostname,
           crawlFullSite,
           maxPages: crawlFullSite ? Number(maxPages) : undefined,
