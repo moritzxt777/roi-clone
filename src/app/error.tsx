@@ -12,6 +12,20 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
+    // Se o erro for de chunk antigo após um novo build/deploy, recarrega a página automaticamente
+    if (
+      error?.name === 'ChunkLoadError' ||
+      error?.message?.includes('Loading chunk') ||
+      error?.message?.includes('Failed to fetch') ||
+      error?.message?.includes('dynamically imported module')
+    ) {
+      const lastChunkReload = sessionStorage.getItem('last_chunk_reload');
+      const now = Date.now();
+      if (!lastChunkReload || now - Number(lastChunkReload) > 10000) {
+        sessionStorage.setItem('last_chunk_reload', now.toString());
+        window.location.reload();
+      }
+    }
     // Log the error for diagnostics
     console.error('App runtime error caught by boundary:', error);
   }, [error]);
@@ -40,25 +54,35 @@ export default function Error({
             Algo não carregou corretamente
           </h1>
           <p className="text-xs text-neutral-400 mb-8 leading-relaxed">
-            Houve uma instabilidade temporária ao carregar estas informações. Você pode tentar recarregar ou retornar ao painel principal com segurança.
+            Uma nova versão do sistema pode ter sido atualizada no servidor. Clique no botão abaixo para recarregar com as atualizações mais recentes.
           </p>
 
           <div className="space-y-3">
             <button
-              onClick={() => reset()}
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.location.reload();
+                } else {
+                  reset();
+                }
+              }}
               className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-xs font-semibold text-white hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20 active:scale-[0.98]"
             >
               <RefreshCw className="w-4 h-4" />
               <span>Tentar Novamente</span>
             </button>
 
-            <Link
-              href="/dashboard"
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 px-5 py-3 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition-all"
+            <button
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.location.href = '/dashboard';
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 px-5 py-3 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
             >
               <Home className="w-4 h-4 text-neutral-400" />
               <span>Voltar ao Dashboard</span>
-            </Link>
+            </button>
           </div>
         </div>
 
